@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api/client.js';
+import type { AnalysisFocus } from '../lib/analysisFocus.js';
 import type { ThemeFilter } from '../lib/themeFilters.js';
 import type { ContentModule, Event, Place, TimeObject, Source, Actor, Concept, Movement, Task } from '@chronotop/shared';
 
@@ -87,6 +88,8 @@ interface ChronotopState {
   hoveredEventId: string | null;
   mapFollowMode: MapFollowMode;
   mapFocusRequest: number;
+  analysisFocus: AnalysisFocus | null;
+  analysisFocusMapRequest: number;
   mapUserInteractionAt: number | null;
 
   // Time filter
@@ -107,6 +110,8 @@ interface ChronotopState {
   hoverEvent: (id: string | null) => void;
   noteMapInteraction: () => void;
   requestMapFocus: () => void;
+  setAnalysisFocus: (focus: AnalysisFocus | null) => void;
+  requestAnalysisFocusMapFit: () => void;
   resumeMapFollow: () => void;
   setTimeFilter: (filter: { from?: string; to?: string }) => void;
   setThemeFilter: (filter: ThemeFilter | ((current: ThemeFilter) => ThemeFilter)) => void;
@@ -156,6 +161,8 @@ export const useChronotopStore = create<ChronotopState>((set, get) => ({
   hoveredEventId: null,
   mapFollowMode: 'auto',
   mapFocusRequest: 0,
+  analysisFocus: null,
+  analysisFocusMapRequest: 0,
   mapUserInteractionAt: null,
   timeFilter: {},
   themeFilter: [],
@@ -198,6 +205,8 @@ export const useChronotopStore = create<ChronotopState>((set, get) => ({
       selectionOrigin: selectedEventId ? s.selectionOrigin : null,
       selectionRevision: selectedEventId === s.selectedEventId ? s.selectionRevision : s.selectionRevision + 1,
       mapFollowMode: 'auto',
+      analysisFocus: null,
+      analysisFocusMapRequest: 0,
       timeFilter: {},
       themeFilter: [],
       demoDraftDirty: false,
@@ -231,6 +240,8 @@ export const useChronotopStore = create<ChronotopState>((set, get) => ({
   hoverEvent: (id) => set({ hoveredEventId: id }),
   noteMapInteraction: () => set({ mapFollowMode: 'paused', mapUserInteractionAt: Date.now() }),
   requestMapFocus: () => set(s => ({ mapFollowMode: 'auto', mapFocusRequest: s.mapFocusRequest + 1 })),
+  setAnalysisFocus: (focus) => set({ analysisFocus: focus }),
+  requestAnalysisFocusMapFit: () => set(s => ({ analysisFocusMapRequest: s.analysisFocusMapRequest + 1 })),
   resumeMapFollow: () => set({ mapFollowMode: 'auto' }),
   setTimeFilter: (filter) => set({ timeFilter: filter }),
   setThemeFilter: (filter) => set(s => ({

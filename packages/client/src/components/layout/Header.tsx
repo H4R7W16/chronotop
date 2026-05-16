@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
+import { isStaticDemo } from '../../config.js';
 
 export function Header() {
   const { t } = useTranslation();
@@ -101,7 +102,11 @@ export function Header() {
         )}
 
         <div className={`flex items-center gap-2 shrink-0 ${!moduleId ? 'ml-auto' : ''}`}>
-          {user ? (
+          {isStaticDemo ? (
+            <span className="rounded-md border border-verdigris-200 bg-verdigris-50 px-2 py-1 text-xs font-medium text-verdigris-700">
+              Beta-Demo
+            </span>
+          ) : user ? (
             <>
               <span className="text-sm text-ink-500 hidden sm:block">{user.displayName}</span>
               <button

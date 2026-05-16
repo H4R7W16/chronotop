@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Header } from './components/layout/Header.js';
 import { ModulePicker } from './components/module/ModulePicker.js';
@@ -13,6 +13,7 @@ import { useChronotopStore } from './store/useChronotopStore.js';
 import { useAuthStore } from './store/useAuthStore.js';
 import { ErrorBoundary } from './components/system/ErrorBoundary.js';
 import { ToastHost } from './components/system/ToastHost.js';
+import { isStaticDemo } from './config.js';
 
 function AppShell({ children }: { children: React.ReactNode }) {
   const fullscreen = useChronotopStore(s => s.fullscreen);
@@ -38,6 +39,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const initAuth = useAuthStore(s => s.init);
+  const Router = isStaticDemo ? HashRouter : BrowserRouter;
 
   useEffect(() => {
     initAuth();
@@ -45,10 +47,10 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <BrowserRouter>
+      <Router>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/login" element={isStaticDemo ? <Navigate to="/" replace /> : <LoginPage />} />
+          <Route path="/register" element={isStaticDemo ? <Navigate to="/" replace /> : <RegisterPage />} />
           <Route path="/print/:moduleId" element={<PrintView />} />
           <Route
             path="*"
@@ -66,7 +68,7 @@ export default function App() {
             }
           />
         </Routes>
-      </BrowserRouter>
+      </Router>
       <ToastHost />
     </ErrorBoundary>
   );

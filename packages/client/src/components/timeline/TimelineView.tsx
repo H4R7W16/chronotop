@@ -9,6 +9,7 @@ import {
   isEventInTimeRange,
   sortEventsByDate,
 } from '../../lib/timelineUtils.js';
+import { analysisFocusSummary, eventMatchesAnalysisFocus } from '../../lib/analysisFocus.js';
 import { getTimelineConfig } from '../../lib/timelineConfig.js';
 import { buildTimelineScale, generateTimelineTicks, type TimelineScale } from '../../lib/timelineScale.js';
 import {
@@ -29,12 +30,25 @@ const AXIS_HEIGHT = 36;
 const TOP_PADDING = PHASE_HEIGHT + AXIS_HEIGHT;
 const LANE_HEIGHT = 30;
 const LANE_GAP = 8;
-const MINIMAP_HEIGHT = 24;
+const MINIMAP_HEIGHT = 30;
 const MIN_SPAN_WIDTH = 22;
 const INSTANT_HIT_WIDTH = 32;
 const EVENT_GAP = 10;
+const RANGE_COMMIT_THRESHOLD_YEARS = 0.2;
+const PAN_DRAG_THRESHOLD_PX = 3;
+const MAX_AUTO_ZOOM = 14;
+const MAX_MANUAL_ZOOM = 20;
 
 type FilterMode = 'all' | 'point' | 'range';
+type TimelinePointerMode = 'pan' | 'range';
+
+interface TimelinePointerState {
+  pointerId: number;
+  mode: TimelinePointerMode;
+  startX: number;
+  startYear: number;
+  startPan: number;
+}
 
 interface TimelineItem {
   event: ChronotopEvent;
@@ -59,6 +73,7 @@ export function TimelineView() {
   const selectedEventId = useChronotopStore(s => s.selectedEventId);
   const selectionOrigin = useChronotopStore(s => s.selectionOrigin);
   const hoveredEventId = useChronotopStore(s => s.hoveredEventId);
+  const analysisFocus = useChronotopStore(s => s.analysisFocus);
   const timeFilter = useChronotopStore(s => s.timeFilter);
   const themeFilter = useChronotopStore(s => s.themeFilter);
   const searchQuery = useChronotopStore(s => s.searchQuery);
@@ -66,6 +81,7 @@ export function TimelineView() {
   const setThemeFilter = useChronotopStore(s => s.setThemeFilter);
   const selectEvent = useChronotopStore(s => s.selectEvent);
   const hoverEvent = useChronotopStore(s => s.hoverEvent);
+  const setAnalysisFocus = useChronotopStore(s => s.setAnalysisFocus);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
@@ -74,12 +90,17 @@ export function TimelineView() {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [pointYear, setPointYear] = useState<number | null>(null);
   const [rangeYears, setRangeYears] = useState<{ from: number; to: number } | null>(null);
+  const rangePreviewRef = useRef<{ from: number; to: number } | null>(null);
   const [isRangeDragging, setIsRangeDragging] = useState(false);
-  const rangeDragStartRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [panX, setPanX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const dragStartRef = useRef<{ x: number; pan: number } | null>(null);
+  const pointerStateRef = useRef<TimelinePointerState | null>(null);
+
+  const updateRangeYears = useCallback((next: { from: number; to: number } | null) => {
+    rangePreviewRef.current = next;
+    setRangeYears(next);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -95,8 +116,8 @@ export function TimelineView() {
     setPanX(0);
     setFilterMode('all');
     setPointYear(null);
-    setRangeYears(null);
-  }, [currentModule?.id]);
+    updateRangeYears(null);
+  }, [currentModule?.id, updateRangeYears]);
 
   useEffect(() => {
     setPanX(current => clampPan(current, width, zoom));
@@ -109,12 +130,7 @@ export function TimelineView() {
         to: yearToIso(pointYear + 0.5),
       });
     }
-    if (filterMode === 'range' && rangeYears) {
-      const lo = Math.min(rangeYears.from, rangeYears.to);
-      const hi = Math.max(rangeYears.from, rangeYears.to);
-      setTimeFilter({ from: yearToIso(lo), to: yearToIso(hi) });
-    }
-  }, [filterMode, pointYear, rangeYears, setTimeFilter]);
+  }, [filterMode, pointYear, setTimeFilter]);
 
   const lang = i18n.language;
   const themeOptions = useMemo(
@@ -169,6 +185,10 @@ export function TimelineView() {
   );
 
   const visibleEventIds = useMemo(() => new Set(visibleEvents.map(event => event.id)), [visibleEvents]);
+  const focusedEventIds = useMemo(() => {
+    if (!analysisFocus) return new Set<string>();
+    return new Set(candidateEvents.filter(event => eventMatchesAnalysisFocus(event, analysisFocus)).map(event => event.id));
+  }, [analysisFocus, candidateEvents]);
 
   const orderIndex = useMemo(() => {
     const map = new Map<string, number>();
@@ -202,7 +222,7 @@ export function TimelineView() {
     const startRatio = scale.ratioForYear(Math.min(from, to));
     const endRatio = scale.ratioForYear(Math.max(from, to));
     const ratioWidth = Math.max(endRatio - startRatio, 0.018);
-    const nextZoom = preferredZoom ?? Math.max(1, Math.min(20, 0.78 / ratioWidth));
+    const nextZoom = preferredZoom ?? Math.max(1, Math.min(MAX_AUTO_ZOOM, 0.78 / ratioWidth));
     const centerRatio = (startRatio + endRatio) / 2;
     const nextPan = width / 2 - centerRatio * width * nextZoom;
     setZoom(nextZoom);
@@ -213,7 +233,7 @@ export function TimelineView() {
     if (!eventId) return;
     const item = layoutItems.find(candidate => candidate.event.id === eventId);
     if (!item) return;
-    const centerRatio = scale.ratioForYear(item.startYear);
+    const centerRatio = scale.ratioForYear((item.startYear + item.endYear) / 2);
     const nextPan = width / 2 - centerRatio * innerWidth;
     setPanX(clampPan(nextPan, width, zoom));
   }, [layoutItems, scale, width, innerWidth, zoom]);
@@ -224,8 +244,10 @@ export function TimelineView() {
     centerOnEvent(selectedEventId);
   }, [selectedEventId, selectionOrigin, centerOnEvent]);
 
-  const selectedX = selectedItem ? yearToX(selectedItem.startYear) : null;
-  const selectedOffscreen = selectedX != null && (selectedX < 32 || selectedX > width - 32);
+  const selectedStartX = selectedItem ? yearToX(selectedItem.startYear) : null;
+  const selectedEndX = selectedItem ? yearToX(selectedItem.endYear) : null;
+  const selectedOffscreen = selectedStartX != null && selectedEndX != null
+    && (Math.max(selectedStartX, selectedEndX) < 32 || Math.min(selectedStartX, selectedEndX) > width - 32);
   const ticks = useMemo(() => generateTimelineTicks(scale, 7), [scale]);
 
   const totalLanes = Math.max(...layoutItems.map(item => item.lane + 1), 1);
@@ -241,9 +263,9 @@ export function TimelineView() {
   const clearTimeFilter = useCallback(() => {
     setFilterMode('all');
     setPointYear(null);
-    setRangeYears(null);
+    updateRangeYears(null);
     setTimeFilter({});
-  }, [setTimeFilter]);
+  }, [setTimeFilter, updateRangeYears]);
 
   const switchMode = useCallback((mode: FilterMode) => {
     if (mode === 'all') {
@@ -252,22 +274,22 @@ export function TimelineView() {
     }
     setFilterMode(mode);
     setPointYear(null);
-    setRangeYears(null);
+    updateRangeYears(null);
     setTimeFilter({});
-  }, [clearTimeFilter, setTimeFilter]);
+  }, [clearTimeFilter, setTimeFilter, updateRangeYears]);
 
   const applyRangeFilter = useCallback((from: number, to: number) => {
     const normalized = { from: Math.min(from, to), to: Math.max(from, to) };
     setFilterMode('range');
     setPointYear(null);
-    setRangeYears(normalized);
+    updateRangeYears(normalized);
     setTimeFilter({ from: yearToIso(normalized.from), to: yearToIso(normalized.to) });
     centerOnYearRange(normalized.from, normalized.to);
-  }, [centerOnYearRange, setTimeFilter]);
+  }, [centerOnYearRange, setTimeFilter, updateRangeYears]);
 
   const zoomBy = useCallback((factor: number) => {
     const centerRatio = (width / 2 - panX) / innerWidth;
-    const nextZoom = Math.max(1, Math.min(20, zoom * factor));
+    const nextZoom = Math.max(1, Math.min(MAX_MANUAL_ZOOM, zoom * factor));
     const nextPan = width / 2 - centerRatio * width * nextZoom;
     setZoom(nextZoom);
     setPanX(clampPan(nextPan, width, nextZoom));
@@ -291,69 +313,112 @@ export function TimelineView() {
     );
   }, [setThemeFilter]);
 
-  const handleMouseDown = (event: React.MouseEvent) => {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    const xLocal = event.clientX - rect.left;
-    const year = xToYear(xLocal);
-
-    if (filterMode === 'point') {
-      setPointYear(year);
-      return;
-    }
-    if (filterMode === 'range') {
-      setIsRangeDragging(true);
-      rangeDragStartRef.current = year;
-      setRangeYears({ from: year, to: year });
-      return;
-    }
-
-    setIsDragging(true);
-    dragStartRef.current = { x: event.clientX, pan: panX };
-  };
-
-  const handleMouseMove = (event: React.MouseEvent) => {
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const xLocal = event.clientX - rect.left;
     const year = xToYear(xLocal);
     setCursorYear(year);
 
-    if (filterMode === 'range' && isRangeDragging && rangeDragStartRef.current != null) {
-      setRangeYears({ from: rangeDragStartRef.current, to: year });
+    if (filterMode === 'point') {
+      setPointYear(year);
       return;
     }
-    if (filterMode === 'point') return;
-    if (!isDragging || !dragStartRef.current) return;
 
-    const dx = event.clientX - dragStartRef.current.x;
-    setPanX(clampPan(dragStartRef.current.pan + dx, width, zoom));
-  };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointerStateRef.current = {
+      pointerId: event.pointerId,
+      mode: filterMode === 'range' ? 'range' : 'pan',
+      startX: event.clientX,
+      startYear: year,
+      startPan: panX,
+    };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-    dragStartRef.current = null;
-    if (isRangeDragging) {
-      setIsRangeDragging(false);
-      const range = rangeYears;
-      if (range && Math.abs(range.from - range.to) < 0.05) setRangeYears(null);
+    if (filterMode === 'range') {
+      setIsRangeDragging(true);
+      updateRangeYears({ from: year, to: year });
+      return;
     }
   };
 
-  const handleMouseLeave = () => {
-    handleMouseUp();
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const xLocal = event.clientX - rect.left;
+    const year = xToYear(xLocal);
+    setCursorYear(year);
+
+    const pointerState = pointerStateRef.current;
+    if (!pointerState || pointerState.pointerId !== event.pointerId) return;
+
+    if (pointerState.mode === 'range') {
+      updateRangeYears({ from: pointerState.startYear, to: year });
+      return;
+    }
+
+    const dx = event.clientX - pointerState.startX;
+    const hasMoved = Math.abs(dx) >= PAN_DRAG_THRESHOLD_PX;
+    if (!hasMoved && !isDragging) return;
+    if (hasMoved && !isDragging) setIsDragging(true);
+    setPanX(clampPan(pointerState.startPan + dx, width, zoom));
+  };
+
+  const finishPointerInteraction = useCallback((event?: React.PointerEvent<HTMLDivElement>) => {
+    const pointerState = pointerStateRef.current;
+    if (!pointerState) {
+      setIsDragging(false);
+      setIsRangeDragging(false);
+      return;
+    }
+
+    if (event?.currentTarget.hasPointerCapture(pointerState.pointerId)) {
+      event.currentTarget.releasePointerCapture(pointerState.pointerId);
+    }
+    pointerStateRef.current = null;
+    setIsDragging(false);
+
+    if (pointerState.mode === 'range') {
+      setIsRangeDragging(false);
+      const range = rangePreviewRef.current;
+      if (!range || Math.abs(range.from - range.to) < RANGE_COMMIT_THRESHOLD_YEARS) {
+        updateRangeYears(null);
+        setTimeFilter({});
+        return;
+      }
+
+      const normalized = { from: Math.min(range.from, range.to), to: Math.max(range.from, range.to) };
+      updateRangeYears(normalized);
+      setTimeFilter({ from: yearToIso(normalized.from), to: yearToIso(normalized.to) });
+    }
+  }, [setTimeFilter, updateRangeYears]);
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    finishPointerInteraction(event);
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    finishPointerInteraction(event);
+  };
+
+  const handlePointerLeave = () => {
+    if (pointerStateRef.current) return;
     setCursorYear(null);
     setTooltipState(null);
     hoverEvent(null);
   };
 
   const handleWheel = (event: React.WheelEvent) => {
+    const isZoomGesture = event.ctrlKey || event.metaKey;
+    const horizontalDelta = event.shiftKey ? event.deltaY : event.deltaX;
+    const isHorizontalPan = event.shiftKey || Math.abs(horizontalDelta) > Math.abs(event.deltaY);
+    if (!isZoomGesture && !isHorizontalPan) return;
+
     event.preventDefault();
-    if (!event.ctrlKey && !event.metaKey) {
-      const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
-      setPanX(current => clampPan(current - delta, width, zoom));
+    if (!isZoomGesture) {
+      setPanX(current => clampPan(current - horizontalDelta, width, zoom));
       return;
     }
 
-    const nextZoom = Math.max(1, Math.min(20, zoom + (-event.deltaY * 0.002) * zoom));
+    const nextZoom = Math.max(1, Math.min(MAX_MANUAL_ZOOM, zoom + (-event.deltaY * 0.002) * zoom));
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
     const mouseX = event.clientX - rect.left;
     const ratioAtMouse = (mouseX - panX) / innerWidth;
@@ -362,13 +427,40 @@ export function TimelineView() {
     setPanX(clampPan(nextPan, width, nextZoom));
   };
 
+  const centerMiniMapAtRatio = useCallback((ratio: number) => {
+    if (zoom <= 1) return;
+    const nextPan = width / 2 - clamp(ratio, 0, 1) * innerWidth;
+    setPanX(clampPan(nextPan, width, zoom));
+  }, [zoom, width, innerWidth]);
+
   const handleMiniMapClick = useCallback((event: React.MouseEvent<SVGSVGElement>) => {
     if (zoom <= 1) return;
     const rect = (event.currentTarget as SVGSVGElement).getBoundingClientRect();
     const ratio = (event.clientX - rect.left) / width;
-    const nextPan = width / 2 - ratio * innerWidth;
-    setPanX(clampPan(nextPan, width, zoom));
-  }, [zoom, width, innerWidth]);
+    centerMiniMapAtRatio(ratio);
+  }, [zoom, width, centerMiniMapAtRatio]);
+
+  const panMiniMapByRatio = useCallback((delta: number) => {
+    const centerRatio = (width / 2 - panX) / innerWidth;
+    centerMiniMapAtRatio(centerRatio + delta);
+  }, [width, panX, innerWidth, centerMiniMapAtRatio]);
+
+  const handleMiniMapKeyDown = useCallback((event: React.KeyboardEvent<SVGSVGElement>) => {
+    if (zoom <= 1) return;
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault();
+      panMiniMapByRatio(-0.08 / zoom);
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault();
+      panMiniMapByRatio(0.08 / zoom);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      centerMiniMapAtRatio(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      centerMiniMapAtRatio(1);
+    }
+  }, [zoom, panMiniMapByRatio, centerMiniMapAtRatio]);
 
   const cursorClass =
     filterMode === 'point' ? 'cursor-pointer'
@@ -419,6 +511,17 @@ export function TimelineView() {
           ))}
         </div>
 
+        {analysisFocus && (
+          <button
+            type="button"
+            onClick={() => setAnalysisFocus(null)}
+            className="rounded-full border border-gold-200 bg-gold-100 px-2.5 py-1 text-[11px] font-semibold text-gold-600 hover:bg-gold-200"
+            title="Analysefokus entfernen"
+          >
+            {analysisFocusSummary(analysisFocus.kind)}: {analysisFocus.label} ×
+          </button>
+        )}
+
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {selectedOffscreen && (
             <button
@@ -454,7 +557,14 @@ export function TimelineView() {
           height={MINIMAP_HEIGHT}
           style={{ display: 'block', cursor: zoom > 1 ? 'pointer' : 'default' }}
           onClick={handleMiniMapClick}
-          aria-label="Zeitleisten-Übersicht"
+          onKeyDown={handleMiniMapKeyDown}
+          role="slider"
+          tabIndex={zoom > 1 ? 0 : -1}
+          aria-label="Zeitleisten-Übersicht: sichtbaren Ausschnitt verschieben"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(clamp((width / 2 - panX) / innerWidth, 0, 1) * 100)}
+          aria-disabled={zoom <= 1}
         >
           <rect x={0} y={0} width={width} height={MINIMAP_HEIGHT} fill="transparent" />
           {scale.segments.map(segment => (
@@ -473,6 +583,7 @@ export function TimelineView() {
             const x = scale.ratioForYear(item.startYear) * width;
             const x2 = scale.ratioForYear(item.endYear) * width;
             const isSelected = item.event.id === selectedEventId;
+            const isFocused = focusedEventIds.has(item.event.id);
             const isVisibleByTime = visibleEventIds.has(item.event.id);
             const w = item.isInstant ? 3.5 : Math.max(3.5, x2 - x);
             return (
@@ -483,8 +594,8 @@ export function TimelineView() {
                 width={w}
                 height={MINIMAP_HEIGHT - 10}
                 rx={1.5}
-                fill={isSelected ? 'var(--color-burgundy-600)' : option.color}
-                opacity={isSelected ? 1 : isVisibleByTime ? 0.82 : 0.18}
+                fill={isSelected ? 'var(--color-burgundy-600)' : isFocused ? '#b46c1f' : option.color}
+                opacity={isSelected || isFocused ? 1 : isVisibleByTime ? (analysisFocus ? 0.26 : 0.82) : 0.18}
               />
             );
           })}
@@ -508,10 +619,12 @@ export function TimelineView() {
       <div
         ref={containerRef}
         className={`relative min-h-0 flex-1 select-none overflow-y-auto overflow-x-hidden ${cursorClass}`}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
+        style={{ touchAction: filterMode === 'all' ? 'pan-y' : 'none' }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerLeave}
         onWheel={handleWheel}
       >
         <svg width={width} height={Math.max(totalHeight, 1)} style={{ display: 'block' }}>
@@ -522,7 +635,15 @@ export function TimelineView() {
             const w = (segment.ratioEnd - segment.ratioStart) * innerWidth;
             if (x + w < -40 || x > width + 40) return null;
             return (
-              <g key={segment.id}>
+              <g
+                key={segment.id}
+                onPointerDown={event => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  applyRangeFilter(segment.startYear, segment.endYear);
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <rect
                   x={x}
                   y={0}
@@ -534,7 +655,7 @@ export function TimelineView() {
                     event.stopPropagation();
                     applyRangeFilter(segment.startYear, segment.endYear);
                   }}
-                  style={{ cursor: 'pointer' }}
+                  onPointerDown={event => event.stopPropagation()}
                 />
                 {w > 76 && (
                   <text
@@ -624,6 +745,7 @@ export function TimelineView() {
             const palette = themePalette(option);
             const isSelected = item.event.id === selectedEventId;
             const isHovered = item.event.id === hoveredEventId;
+            const isFocused = focusedEventIds.has(item.event.id);
             const isVisibleByTime = visibleEventIds.has(item.event.id);
             const itemWidth = item.isInstant ? INSTANT_HIT_WIDTH : Math.max(x2 - x, MIN_SPAN_WIDTH);
             const visualStart = item.isInstant ? x - INSTANT_HIT_WIDTH / 2 : x;
@@ -641,6 +763,8 @@ export function TimelineView() {
                 order={orderIndex.get(item.event.id)}
                 selected={isSelected}
                 hovered={isHovered}
+                focused={isFocused}
+                focusMuted={!!analysisFocus && !isFocused}
                 visibleByTime={isVisibleByTime}
                 label={loc(item.event.title)}
                 certainty={eventCertainty(item.event)}
@@ -687,6 +811,8 @@ function TimelineEventShape({
   order,
   selected,
   hovered,
+  focused,
+  focusMuted,
   visibleByTime,
   label,
   certainty,
@@ -704,6 +830,8 @@ function TimelineEventShape({
   order?: number;
   selected: boolean;
   hovered: boolean;
+  focused: boolean;
+  focusMuted: boolean;
   visibleByTime: boolean;
   label: string;
   certainty: CertaintyLevel;
@@ -712,24 +840,34 @@ function TimelineEventShape({
   onSelect: () => void;
   onHover: (hovered: boolean) => void;
 }) {
-  const opacity = visibleByTime ? 1 : 0.22;
+  const interactive = visibleByTime;
+  const opacity = focusMuted ? 0.28 : visibleByTime ? 1 : 0.22;
   const strokeDasharray = certainty === 'certain' ? undefined : '4,3';
-  const showLabel = selected || hovered || (!item.isInstant && width > 138);
+  const showLabel = selected || hovered || focused || (!item.isInstant && width > 138);
   const fill = selected
     ? palette.strong
+    : focused
+    ? palette.tint
     : hovered
     ? palette.soft
     : item.isInstant
     ? '#fffdfa'
     : palette.strong;
-  const stroke = selected ? 'var(--color-ink-800)' : palette.stroke;
-  const textColor = item.isInstant && !selected ? palette.stroke : 'white';
+  const stroke = selected ? 'var(--color-ink-800)' : focused ? '#b46c1f' : palette.stroke;
+  const textColor = focused && !selected ? '#5d4319' : item.isInstant && !selected ? palette.stroke : 'white';
 
   const handleKeyDown = (event: React.KeyboardEvent<SVGGElement>) => {
+    if (!interactive) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onSelect();
     }
+  };
+
+  const handleSelect = (event: React.MouseEvent<SVGGElement>) => {
+    event.stopPropagation();
+    if (!interactive) return;
+    onSelect();
   };
 
   if (item.isInstant) {
@@ -739,11 +877,13 @@ function TimelineEventShape({
     return (
       <g
         role="button"
-        tabIndex={0}
+        tabIndex={interactive ? 0 : -1}
         aria-label={`${label}, ${formatYear(item.startYear)}`}
-        style={{ cursor: visibleByTime ? 'pointer' : 'default', opacity }}
+        aria-disabled={!interactive}
+        style={{ cursor: interactive ? 'pointer' : 'default', opacity }}
+        onPointerDown={event => event.stopPropagation()}
         onMouseDown={event => event.stopPropagation()}
-        onClick={(event) => { event.stopPropagation(); onSelect(); }}
+        onClick={handleSelect}
         onKeyDown={handleKeyDown}
         onMouseEnter={() => onHover(true)}
         onMouseLeave={() => onHover(false)}
@@ -751,7 +891,7 @@ function TimelineEventShape({
         onBlur={() => onHover(false)}
       >
         <line x1={x} y1={TOP_PADDING - 4} x2={x} y2={y + LANE_HEIGHT / 2 - 10} stroke={palette.stroke} strokeWidth={1} opacity={0.38} />
-        <circle cx={x} cy={y + LANE_HEIGHT / 2} r={selected ? 10 : hovered ? 9 : 8} fill={fill} stroke={stroke} strokeWidth={selected ? 2.2 : 1.7} strokeDasharray={strokeDasharray} />
+        <circle cx={x} cy={y + LANE_HEIGHT / 2} r={selected ? 10 : focused ? 9.6 : hovered ? 9 : 8} fill={fill} stroke={stroke} strokeWidth={selected ? 2.2 : focused ? 2.4 : 1.7} strokeDasharray={strokeDasharray} />
         <circle cx={x} cy={y + LANE_HEIGHT / 2} r={3.4} fill={selected ? 'white' : palette.stroke} />
         {order != null && (
           <text x={x} y={y + LANE_HEIGHT / 2 + 18} textAnchor="middle" fill={palette.stroke} style={{ fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-serif)' }}>
@@ -773,11 +913,13 @@ function TimelineEventShape({
   return (
     <g
       role="button"
-      tabIndex={0}
+      tabIndex={interactive ? 0 : -1}
       aria-label={`${label}, ${formatYear(item.startYear)} bis ${formatYear(item.endYear)}`}
-      style={{ cursor: visibleByTime ? 'pointer' : 'default', opacity }}
+      aria-disabled={!interactive}
+      style={{ cursor: interactive ? 'pointer' : 'default', opacity }}
+      onPointerDown={event => event.stopPropagation()}
       onMouseDown={event => event.stopPropagation()}
-      onClick={(event) => { event.stopPropagation(); onSelect(); }}
+      onClick={handleSelect}
       onKeyDown={handleKeyDown}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
@@ -792,9 +934,22 @@ function TimelineEventShape({
         rx={5}
         fill={fill}
         stroke={stroke}
-        strokeWidth={selected ? 2 : 1}
+        strokeWidth={selected ? 2 : focused ? 2.2 : 1}
         strokeDasharray={strokeDasharray}
       />
+      {focused && !selected && (
+        <rect
+          x={x - 3}
+          y={y - 3}
+          width={Math.max(x2 - x, MIN_SPAN_WIDTH) + 6}
+          height={LANE_HEIGHT + 6}
+          rx={7}
+          fill="none"
+          stroke="#b46c1f"
+          strokeWidth={1.6}
+          strokeOpacity={0.75}
+        />
+      )}
       <rect x={x + 2} y={y + 2} width={Math.max(x2 - x, MIN_SPAN_WIDTH) - 4} height={LANE_HEIGHT - 4} rx={4} fill="white" opacity={selected ? 0.07 : 0.12} />
       {order != null && (
         <g>

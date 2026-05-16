@@ -1,4 +1,6 @@
 import { toast } from '../components/system/toast.js';
+import { isStaticDemo } from '../config.js';
+import { staticDemoApi } from './staticDemo.js';
 
 const BASE = '/api/v1';
 
@@ -34,7 +36,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export const api = {
+const serverApi = {
   // Modules
   getModules: () => request<any[]>('/modules'),
   getModule: (id: string) => request<any>(`/modules/${id}`),
@@ -129,3 +131,5 @@ export const api = {
     request<any>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
   authLogout: () => request<void>('/auth/logout', { method: 'POST' }),
 };
+
+export const api = isStaticDemo ? staticDemoApi : serverApi;

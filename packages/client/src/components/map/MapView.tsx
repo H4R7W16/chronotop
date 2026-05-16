@@ -8,6 +8,7 @@ import {
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { isEventInTimeRange, sortEventsByDate, eventMatchesSearch, isPlaceValidInRange } from '../../lib/timelineUtils.js';
 import { MapOverlay } from './MapOverlay.js';
+import { eventMatchesAnalysisFocus, movementMatchesAnalysisFocus } from '../../lib/analysisFocus.js';
 import {
   buildThemeOptions,
   certaintyLabel,
@@ -88,6 +89,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
   const hasFittedRef = useRef(false);
   const handledFocusRequestRef = useRef(0);
+  const handledAnalysisFocusRequestRef = useRef(0);
 
   const events = useChronotopStore(s => s.events);
   const places = useChronotopStore(s => s.places);
@@ -100,6 +102,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const hoveredEventId = useChronotopStore(s => s.hoveredEventId);
   const mapFollowMode = useChronotopStore(s => s.mapFollowMode);
   const mapFocusRequest = useChronotopStore(s => s.mapFocusRequest);
+  const analysisFocus = useChronotopStore(s => s.analysisFocus);
+  const analysisFocusMapRequest = useChronotopStore(s => s.analysisFocusMapRequest);
   const timeFilter = useChronotopStore(s => s.timeFilter);
   const themeFilter = useChronotopStore(s => s.themeFilter);
   const searchQuery = useChronotopStore(s => s.searchQuery);
@@ -145,6 +149,10 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     [events, places, movements, concepts],
   );
   const eventById = useMemo(() => new Map(events.map(event => [event.id, event])), [events]);
+  const focusedEventIds = useMemo(() => {
+    if (!analysisFocus) return new Set<string>();
+    return new Set(events.filter(event => eventMatchesAnalysisFocus(event, analysisFocus)).map(event => event.id));
+  }, [analysisFocus, events]);
 
   useEffect(() => {
     setThemeFilter([]);
@@ -284,6 +292,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         const place = event.place!;
         const order = sortedEvents.findIndex(e => e.id === event.id) + 1;
         const placeName = localized(place.name, lang);
+        const focusMatch = !!analysisFocus && focusedEventIds.has(event.id);
         return {
           type: 'Feature' as const,
           id: i,
@@ -297,6 +306,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             certainty: place.certainty ?? 'certain',
             visualKind: classifyVisualKind(place, lang),
             geometryType: place.geometry!.type,
+            focusMatch,
+            focusMuted: !!analysisFocus && !focusMatch,
           },
           geometry: place.geometry!,
         };
@@ -326,6 +337,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             certainty: place.certainty ?? 'certain',
             visualKind: classifyVisualKind(place, lang),
             geometryType: place.geometry!.type,
+            focusMatch: false,
+            focusMuted: !!analysisFocus,
           },
           geometry: place.geometry!,
         };
@@ -362,6 +375,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   function addEventMarker(map: maplibregl.Map, event: any, index: number, lang: string) {
     const isSelected = event.id === selectedEventId;
     const isHovered = event.id === hoveredEventId;
+    const isFocused = focusedEventIds.has(event.id);
+    const isMuted = !!analysisFocus && !isFocused && !isSelected;
     const hasShape = !!event.place.geometry;
     const palette = visualPalette(classifyVisualKind(event.place, lang));
     const el = document.createElement('div');
@@ -370,21 +385,24 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     el.setAttribute('tabindex', '0');
     el.setAttribute('aria-label', `${localized(event.title, lang)} - ${event.timeObject ? localized(event.timeObject.label, lang) : ''}`);
     el.style.cssText = `
-      width: ${isSelected ? 32 : 26}px;
-      height: ${isSelected ? 32 : 26}px;
+      width: ${isSelected || isFocused ? 32 : 26}px;
+      height: ${isSelected || isFocused ? 32 : 26}px;
       border-radius: 50%;
       background: ${isSelected
         ? `linear-gradient(135deg, ${palette.strong} 0%, ${palette.stroke} 100%)`
+        : isFocused
+        ? `linear-gradient(135deg, #ffffff 0%, ${palette.soft} 100%)`
         : isHovered
         ? `linear-gradient(135deg, ${palette.tint} 0%, ${palette.soft} 100%)`
         : `linear-gradient(135deg, #ffffff 0%, ${palette.tint} 100%)`};
-      border: 2px solid ${isSelected || isHovered ? palette.stroke : palette.strong};
-      box-shadow: 0 2px 6px rgba(35, 33, 29, 0.35)${hasShape ? `, 0 0 0 4px ${palette.halo}` : ''};
+      border: ${isFocused && !isSelected ? 3 : 2}px solid ${isSelected || isHovered || isFocused ? palette.stroke : palette.strong};
+      box-shadow: 0 2px 6px rgba(35, 33, 29, ${isMuted ? 0.12 : 0.35})${hasShape || isFocused ? `, 0 0 0 ${isFocused ? 7 : 4}px ${palette.halo}` : ''};
       cursor: pointer;
+      opacity: ${isMuted ? 0.35 : 1};
       display: flex; align-items: center; justify-content: center;
       font-family: Georgia, serif;
       font-weight: 700;
-      font-size: ${isSelected ? '14px' : '12px'};
+      font-size: ${isSelected || isFocused ? '14px' : '12px'};
       color: ${isSelected ? 'white' : palette.stroke};
       user-select: none;
     `;
@@ -488,7 +506,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     if (mapLoadedRef.current) run();
     else map.once('load', run);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events, places, selectedEventId, timeFilter, searchQuery, showMarkers, showShapes, themeFilter, styleVersion]);
+  }, [events, places, selectedEventId, timeFilter, searchQuery, showMarkers, showShapes, themeFilter, styleVersion, analysisFocus, focusedEventIds]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -533,6 +551,29 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !mapLoadedRef.current || !analysisFocus) return;
+    if (analysisFocusMapRequest === handledAnalysisFocusRequestRef.current) return;
+    handledAnalysisFocusRequestRef.current = analysisFocusMapRequest;
+
+    const coords: [number, number][] = [];
+    events.forEach(event => {
+      if (!focusedEventIds.has(event.id) || !event.place) return;
+      if (event.place.geometry) coords.push(...collectCoordinates(event.place.geometry.coordinates));
+      else coords.push([event.place.lng, event.place.lat]);
+    });
+    movements.forEach(movement => {
+      if (!movementMatchesAnalysisFocus(movement, eventById.get(movement.eventId ?? ''), analysisFocus)) return;
+      coords.push(...movement.coordinates.filter(isLngLatPair));
+    });
+    if (coords.length === 0) return;
+
+    runProgrammaticCamera(map, () => {
+      fitMapToCoordinates(map, coords, coords.length === 1 ? 13 : 11.4);
+    });
+  }, [analysisFocus, analysisFocusMapRequest, eventById, events, focusedEventIds, movements]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || hasFittedRef.current || (events.length === 0 && places.length === 0)) return;
 
     const fit = () => {
@@ -564,6 +605,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         ? movements.filter(mv => movementMatchesTheme(mv, themeFilter, eventById.get(mv.eventId ?? ''), i18n.language)).flatMap((mv, i) => {
             const visualKind = classifyMovementKind(mv);
             const color = mv.color || movementColor(visualKind);
+            const focusMatch = movementMatchesAnalysisFocus(mv, eventById.get(mv.eventId ?? ''), analysisFocus);
             const line = {
               type: 'Feature' as const,
               id: `line-${i}`,
@@ -575,10 +617,12 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
                 description: mv.description ?? '',
                 color,
                 visualKind,
+                focusMatch,
+                focusMuted: !!analysisFocus && !focusMatch,
               },
               geometry: { type: 'LineString' as const, coordinates: mv.coordinates },
             };
-            return [line, ...movementNodeFeatures(mv, i, visualKind, color)];
+            return [line, ...movementNodeFeatures(mv, i, visualKind, color, focusMatch, !!analysisFocus && !focusMatch)];
           })
         : [];
       src.setData({ type: 'FeatureCollection', features });
@@ -587,7 +631,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     if (mapLoadedRef.current) render();
     else map.once('load', render);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [movements, showMovements, themeFilter, styleVersion, eventById]);
+  }, [movements, showMovements, themeFilter, styleVersion, eventById, analysisFocus]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -688,6 +732,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#9a2b2b',
             ['boolean', ['feature-state', 'hovered'], false], '#b94c4a',
+            ['boolean', ['get', 'focusMatch'], false], '#c27b2c',
             ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
             ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
             ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
@@ -699,6 +744,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], 0.36,
             ['boolean', ['feature-state', 'hovered'], false], 0.28,
+            ['boolean', ['get', 'focusMatch'], false], 0.34,
+            ['boolean', ['get', 'focusMuted'], false], 0.06,
             ['==', ['get', 'visualKind'], 'persecution'], 0.22,
             ['==', ['get', 'visualKind'], 'medicalCrime'], 0.20,
             ['==', ['get', 'visualKind'], 'forcedLabor'], 0.20,
@@ -719,6 +766,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#7d2222',
             ['boolean', ['feature-state', 'hovered'], false], '#9a2b2b',
+            ['boolean', ['get', 'focusMatch'], false], '#b46c1f',
             ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
             ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
             ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
@@ -730,9 +778,15 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], 2.8,
             ['boolean', ['feature-state', 'hovered'], false], 2.25,
+            ['boolean', ['get', 'focusMatch'], false], 2.5,
             1.35,
           ],
-          'line-opacity': 0.74,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.22,
+            ['boolean', ['get', 'focusMatch'], false], 0.95,
+            0.74,
+          ],
         },
       });
     }
@@ -751,7 +805,11 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             11, 6.2,
             14, 8,
           ],
-          'line-opacity': 0.82,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.18,
+            0.82,
+          ],
         },
       });
     }
@@ -783,6 +841,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
               'case',
               ['boolean', ['feature-state', 'selected'], false], 3.4,
               ['boolean', ['feature-state', 'hovered'], false], 3,
+              ['boolean', ['get', 'focusMatch'], false], 3.15,
               ['==', ['get', 'visualKind'], 'rail'], 2.4,
               ['==', ['get', 'visualKind'], 'water'], 2.2,
               1.8,
@@ -791,6 +850,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
               'case',
               ['boolean', ['feature-state', 'selected'], false], 4.8,
               ['boolean', ['feature-state', 'hovered'], false], 4.25,
+              ['boolean', ['get', 'focusMatch'], false], 4.55,
               ['==', ['get', 'visualKind'], 'rail'], 3.55,
               ['==', ['get', 'visualKind'], 'water'], 3.35,
               2.7,
@@ -799,12 +859,18 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
               'case',
               ['boolean', ['feature-state', 'selected'], false], 6.2,
               ['boolean', ['feature-state', 'hovered'], false], 5.4,
+              ['boolean', ['get', 'focusMatch'], false], 5.8,
               ['==', ['get', 'visualKind'], 'rail'], 4.8,
               ['==', ['get', 'visualKind'], 'water'], 4.5,
               3.7,
             ],
           ],
-          'line-opacity': 0.9,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.23,
+            ['boolean', ['get', 'focusMatch'], false], 1,
+            0.9,
+          ],
         },
       });
     }
@@ -823,7 +889,11 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             11, 5.8,
             14, 7.4,
           ],
-          'line-opacity': 0.8,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.18,
+            0.8,
+          ],
           'line-dasharray': [2.4, 1.2],
         },
       });
@@ -840,6 +910,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#7d2222',
             ['boolean', ['feature-state', 'hovered'], false], '#9a2b2b',
+            ['boolean', ['get', 'focusMatch'], false], '#b46c1f',
             '#a8781c',
           ],
           'line-width': [
@@ -848,22 +919,30 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
               'case',
               ['boolean', ['feature-state', 'selected'], false], 3.25,
               ['boolean', ['feature-state', 'hovered'], false], 2.9,
+              ['boolean', ['get', 'focusMatch'], false], 3.1,
               2.25,
             ],
             11, [
               'case',
               ['boolean', ['feature-state', 'selected'], false], 4.5,
               ['boolean', ['feature-state', 'hovered'], false], 4.05,
+              ['boolean', ['get', 'focusMatch'], false], 4.3,
               3.2,
             ],
             14, [
               'case',
               ['boolean', ['feature-state', 'selected'], false], 5.6,
               ['boolean', ['feature-state', 'hovered'], false], 5.05,
+              ['boolean', ['get', 'focusMatch'], false], 5.35,
               4.2,
             ],
           ],
-          'line-opacity': 0.86,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.22,
+            ['boolean', ['get', 'focusMatch'], false], 0.98,
+            0.86,
+          ],
           'line-dasharray': [2, 1.35],
         },
       });
@@ -879,10 +958,15 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], 12,
             ['boolean', ['feature-state', 'hovered'], false], 10.5,
+            ['boolean', ['get', 'focusMatch'], false], 12,
             8.5,
           ],
           'circle-color': '#fffaf0',
-          'circle-opacity': 0.9,
+          'circle-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.25,
+            0.9,
+          ],
         },
       });
     }
@@ -897,12 +981,14 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], 8.2,
             ['boolean', ['feature-state', 'hovered'], false], 7.2,
+            ['boolean', ['get', 'focusMatch'], false], 8.2,
             5.8,
           ],
           'circle-color': [
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#7d2222',
             ['boolean', ['feature-state', 'hovered'], false], '#b94c4a',
+            ['boolean', ['get', 'focusMatch'], false], '#fff7df',
             ['==', ['get', 'visualKind'], 'rail'], '#f3e4c5',
             ['==', ['get', 'visualKind'], 'energy'], '#f0c96f',
             ['==', ['get', 'visualKind'], 'water'], '#d8edf5',
@@ -917,6 +1003,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], '#4f1717',
             ['boolean', ['feature-state', 'hovered'], false], '#7d2222',
+            ['boolean', ['get', 'focusMatch'], false], '#b46c1f',
             ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
             ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
             ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
@@ -929,9 +1016,14 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
             'case',
             ['boolean', ['feature-state', 'selected'], false], 2.8,
             ['boolean', ['feature-state', 'hovered'], false], 2.4,
+            ['boolean', ['get', 'focusMatch'], false], 3,
             2,
           ],
-          'circle-opacity': 0.95,
+          'circle-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.28,
+            0.95,
+          ],
         },
       });
     }
@@ -1036,11 +1128,16 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           'line-color': '#fffaf0',
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
-            7, 5.25,
-            11, 7.25,
-            14, 9.5,
+            7, ['case', ['boolean', ['get', 'focusMatch'], false], 6.4, 5.25],
+            11, ['case', ['boolean', ['get', 'focusMatch'], false], 8.8, 7.25],
+            14, ['case', ['boolean', ['get', 'focusMatch'], false], 11.2, 9.5],
           ],
-          'line-opacity': 0.88,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.2,
+            ['boolean', ['get', 'focusMatch'], false], 0.96,
+            0.88,
+          ],
         },
       });
       map.addLayer({
@@ -1057,12 +1154,14 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           'line-color': ['get', 'color'],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
-            7, 2.25,
-            11, 3.65,
-            14, 5.2,
+            7, ['case', ['boolean', ['get', 'focusMatch'], false], 3.15, 2.25],
+            11, ['case', ['boolean', ['get', 'focusMatch'], false], 4.75, 3.65],
+            14, ['case', ['boolean', ['get', 'focusMatch'], false], 6.35, 5.2],
           ],
           'line-opacity': [
             'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.24,
+            ['boolean', ['get', 'focusMatch'], false], 1,
             ['==', ['get', 'visualKind'], 'deportation'], 0.94,
             0.88,
           ],
@@ -1083,11 +1182,16 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           'line-color': '#fffaf0',
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
-            7, 5,
-            11, 7,
-            14, 9,
+            7, ['case', ['boolean', ['get', 'focusMatch'], false], 6.1, 5],
+            11, ['case', ['boolean', ['get', 'focusMatch'], false], 8.45, 7],
+            14, ['case', ['boolean', ['get', 'focusMatch'], false], 10.8, 9],
           ],
-          'line-opacity': 0.86,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.2,
+            ['boolean', ['get', 'focusMatch'], false], 0.96,
+            0.86,
+          ],
           'line-dasharray': [2.4, 1.25],
         },
       });
@@ -1104,11 +1208,16 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           'line-color': ['get', 'color'],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
-            7, 2.15,
-            11, 3.4,
-            14, 4.75,
+            7, ['case', ['boolean', ['get', 'focusMatch'], false], 3, 2.15],
+            11, ['case', ['boolean', ['get', 'focusMatch'], false], 4.45, 3.4],
+            14, ['case', ['boolean', ['get', 'focusMatch'], false], 5.9, 4.75],
           ],
-          'line-opacity': 0.9,
+          'line-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.24,
+            ['boolean', ['get', 'focusMatch'], false], 1,
+            0.9,
+          ],
           'line-dasharray': [1.2, 1.05],
         },
       });
@@ -1122,11 +1231,16 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         paint: {
           'circle-radius': [
             'case',
+            ['boolean', ['get', 'focusMatch'], false], 8.6,
             ['==', ['get', 'nodeRole'], 'stop'], 7.5,
             6.5,
           ],
           'circle-color': '#fffaf0',
-          'circle-opacity': 0.96,
+          'circle-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.24,
+            0.96,
+          ],
         },
       });
       map.addLayer({
@@ -1137,6 +1251,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         paint: {
           'circle-radius': [
             'case',
+            ['boolean', ['get', 'focusMatch'], false], 5.7,
             ['==', ['get', 'nodeRole'], 'stop'], 4.75,
             4,
           ],
@@ -1148,10 +1263,15 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           'circle-stroke-color': ['get', 'color'],
           'circle-stroke-width': [
             'case',
+            ['boolean', ['get', 'focusMatch'], false], 3,
             ['==', ['get', 'nodeRole'], 'stop'], 2.5,
             2,
           ],
-          'circle-opacity': 0.98,
+          'circle-opacity': [
+            'case',
+            ['boolean', ['get', 'focusMuted'], false], 0.26,
+            0.98,
+          ],
         },
       });
     }
@@ -1518,6 +1638,8 @@ function movementNodeFeatures(
   movementIndex: number,
   visualKind: MovementVisualKind,
   color: string,
+  focusMatch = false,
+  focusMuted = false,
 ) {
   const labels = movementNodeLabels(movement);
   if (labels.length === 0) return [];
@@ -1535,6 +1657,8 @@ function movementNodeFeatures(
         color,
         visualKind,
         nodeRole: node.role,
+        focusMatch,
+        focusMuted,
       },
       geometry: {
         type: 'Point' as const,

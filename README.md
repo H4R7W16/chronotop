@@ -10,7 +10,28 @@ Der Name knüpft an Michail Bachtins Begriff der untrennbaren Verschränkung von
 
 ---
 
-## Schnellstart
+## Public-Beta auf GitHub Pages
+
+Die öffentliche Beta ist als **statische GitHub-Pages-Demo** gedacht:
+
+- keine Server-Logins und keine persistente Speicherung auf GitHub Pages
+- drei kuratierte Module: Ebersbach, Esslingen 1933-45, Industrialisierung an Neckar und Fils
+- Lernendenansicht, Autorendemo und Export sind testbar
+- Bearbeitungen im Autorentool bleiben lokal im Browserzustand und können als JSON-Entwurf exportiert werden
+
+Für das Deployment nutzt das Repo einen GitHub-Actions-Workflow unter `.github/workflows/pages.yml`. In den Repository-Einstellungen muss GitHub Pages als **GitHub Actions**-Quelle aktiviert sein.
+
+```bash
+npm install
+npm run pages:prepare
+npm run build:pages
+```
+
+Der Workflow erzeugt die Demo-Daten automatisch aus den Seeds und veröffentlicht `packages/client/dist` als Pages-Artefakt.
+
+---
+
+## Schnellstart lokal
 
 Voraussetzungen: **Node.js ≥ 20**, **npm ≥ 9**. Nichts weiter — keine Datenbank-Installation, kein Docker.
 
@@ -22,12 +43,8 @@ cd chronotop
 # Abhängigkeiten installieren (npm workspaces)
 npm install
 
-# Beispiel-Inhalte einseeden
-npm run seed:reformation     # Reformations-Modul
-npm run seed:9november       # 9. November-Modul
-npm run seed:reformation-extras   # Akteure + Begriffe für Reformation
-npm run seed:geometries      # Historische Polygone aus Wikidata/Historical Basemaps
-npm run seed:berlin-wall     # Berliner Mauer aus OpenStreetMap
+# Kuratierte Beta-Module einseeden
+npm run seed:local
 
 # Entwicklungs-Server starten (Backend + Client parallel)
 npm run dev
@@ -111,10 +128,11 @@ Chronotop ist ausdrücklich kein Insellösung — Inhalte verbinden sich an offe
 | `npm run dev:server` | Nur Express-Server |
 | `npm run dev:client` | Nur Vite-Client |
 | `npm run build` | Produktions-Build des Clients |
+| `npm run pages:prepare` | Kuratierte Demo-Module seeden und statische Demo-Daten exportieren |
+| `npm run build:pages` | Statischen GitHub-Pages-Build mit Demo-Daten erzeugen |
 | `npm run db:migrate` | Datenbank-Migrationen ausführen |
-| `npm run db:seed` | Reformations-Beispielmodul einspielen |
-| `npm run seed:9november` | 9.-November-Modul |
-| `npm run seed:reformation-extras` | Akteure + Begriffe für Reformation |
+| `npm run seed:local` | Public-Beta-Set einspielen: Ebersbach, Esslingen 1933-45, Neckar/Fils |
+| `npm run export:static-demo` | Aktuellen Seed-Stand nach `packages/client/public/demo/demo-data.json` exportieren |
 | `npm run seed:geometries` | Präzise historische Polygone (HRR, Reich 1938) |
 | `npm run seed:berlin-wall` | Berliner Mauer aus OSM |
 | `npm test` | Backend-Tests (Vitest) |
@@ -124,7 +142,7 @@ Chronotop ist ausdrücklich kein Insellösung — Inhalte verbinden sich an offe
 
 ## Daten-Speicherort
 
-Die SQLite-Datei liegt unter `data/chronotop.db` im Projekt-Root. Backup = Datei kopieren.
+Die lokale SQLite-Datei liegt standardmäßig unter `packages/server/data/chronotop.db`. Der Pfad kann über `DB_PATH` überschrieben werden, etwa für den Pages-Build im CI.
 
 ---
 

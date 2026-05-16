@@ -1,50 +1,27 @@
 import { test, expect } from '@playwright/test';
-import { deleteTestModule } from './fixtures.js';
+import { getModules, localized, MODULE_IDS } from './fixtures.js';
 
-test.describe('Critical Path 1: Modul anlegen', () => {
-  let createdId: string | null = null;
-
-  test.afterEach(async ({ request }) => {
-    if (createdId) {
-      await deleteTestModule(request, createdId);
-      createdId = null;
-    }
-  });
-
-  test('Lehrkraft erstellt ein Modul über das ModulePicker-Formular', async ({ page, request }) => {
-    const title = `Playwright-Test-Modul ${Date.now()}`;
-    const author = 'Playwright Bot';
+test.describe('Public Beta 1: Modulauswahl', () => {
+  test('zeigt nur die drei kuratierten Beta-Module und öffnet Ebersbach', async ({ page, request }) => {
+    const modules = await getModules(request);
+    expect(modules.map(module => module.id)).toEqual([
+      MODULE_IDS.ebersbach,
+      MODULE_IDS.neckarFils,
+      MODULE_IDS.esslingen,
+    ]);
 
     await page.goto('/');
-    // Es gibt zwei Chronotop-Headings (Header + Hero); wir prüfen nur dass die Seite geladen ist
     await expect(page.getByRole('heading', { name: 'Module' })).toBeVisible();
 
-    // Form öffnen
-    await page.getByRole('button', { name: '+ Neues Modul' }).click();
+    await expect(page.getByText('Ebersbach an der Fils')).toBeVisible();
+    await expect(page.getByText('Industrialisierung an Neckar und Fils')).toBeVisible();
+    await expect(page.getByText('Esslingen am Neckar 1933-1945')).toBeVisible();
+    await expect(page.getByText('Reformation')).toHaveCount(0);
+    await expect(page.getByText('9. November')).toHaveCount(0);
 
-    // Felder ausfüllen (Form-Felder via Labels, FormField wickelt input ins label)
-    await page.getByLabel('Titel').fill(title);
-    await page.getByLabel('Beschreibung').fill('Erzeugt durch Playwright-E2E-Test.');
-    await page.getByLabel('Autor/in').fill(author);
-
-    // Speichern → Navigation in den Author-Modus
-    await page.getByRole('button', { name: 'Speichern' }).click();
-    await page.waitForURL(/\/author\//, { timeout: 10_000 });
-
-    // Modul-ID aus URL extrahieren für Cleanup
-    const url = page.url();
-    const match = url.match(/\/author\/([0-9a-f-]+)/i);
-    expect(match).not.toBeNull();
-    createdId = match![1];
-
-    // Header zeigt Modul-Titel an (nur auf Desktop sichtbar)
-    await expect(page.locator('header')).toContainText(title);
-
-    // Per API verifizieren, dass das Modul wirklich angelegt wurde
-    const res = await request.get(`http://localhost:3000/api/v1/modules/${createdId}`);
-    expect(res.ok()).toBe(true);
-    const body = await res.json();
-    expect(body.title).toBe(title);
-    expect(body.authorName).toBe(author);
+    const ebersbachCard = page.locator('article').filter({ hasText: localized(modules[0].title) });
+    await ebersbachCard.getByRole('button', { name: 'Erkunden' }).click();
+    await page.waitForURL(new RegExp(`/learn/${MODULE_IDS.ebersbach}`));
+    await expect(page.locator('header')).toContainText('Ebersbach');
   });
 });

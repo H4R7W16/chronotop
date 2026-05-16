@@ -46,6 +46,13 @@ export async function setupTestDb(): Promise<void> {
     .sort();
 
   for (const file of files) {
+    if (file === '015_postgis.sql') {
+      db.run(
+        'INSERT INTO _migrations (name) VALUES (?) ON CONFLICT DO NOTHING',
+        [file]
+      );
+      continue;
+    }
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
     try {
       db.exec(sql);

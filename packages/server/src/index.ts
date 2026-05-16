@@ -73,6 +73,11 @@ function runMigrations(): void {
 
   for (const file of files) {
     if (applied.has(file)) continue;
+    if (file === '015_postgis.sql') {
+      run('INSERT INTO _migrations (name) VALUES (?)', [file]);
+      console.log(`  Migration skipped optional: ${file} (PostGIS is not used by the sql.js demo database)`);
+      continue;
+    }
     const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
     try {
       exec(sql);

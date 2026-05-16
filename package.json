@@ -25,8 +25,11 @@
     "seed:ebersbach": "tsx packages/server/src/seed/ebersbach-local-history.ts",
     "seed:berlin-wall": "tsx packages/server/src/seed/berlin-wall.ts",
     "seed:demo-cleanup": "tsx packages/server/src/seed/demo-cleanup.ts",
+    "export:static-demo": "tsx packages/server/src/scripts/export-static-demo.ts",
+    "pages:prepare": "npm run seed:local && npm run export:static-demo",
+    "build:pages": "npm run build:pages -w packages/client",
     "test": "npm run test -w packages/server && npm run test -w packages/client",
-    "test:e2e": "npx playwright test"
+    "test:e2e": "npm run pages:prepare && npx playwright test"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

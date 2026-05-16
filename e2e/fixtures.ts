@@ -1,35 +1,34 @@
-/**
- * Hilfsfunktionen für E2E-Tests, die direkt mit der API sprechen, um
- * Aufräumen und Setup von Test-Daten zu beschleunigen.
- *
- * Tests arbeiten gegen die laufende Entwicklungs-DB. Sie räumen ihre
- * eigenen Module nach dem Test wieder auf, damit aufeinanderfolgende
- * Läufe stabil bleiben.
- */
 import type { APIRequestContext } from '@playwright/test';
+import type { Event, LocalizedString } from '@chronotop/shared';
 
 const API_BASE = 'http://localhost:3000/api/v1';
 
-/** Erstellt ein Modul direkt per API und gibt seine ID zurück. */
-export async function createTestModule(
-  request: APIRequestContext,
-  data: Partial<{ title: string; description: string; authorName: string }> = {},
-): Promise<{ id: string }> {
-  const res = await request.post(`${API_BASE}/modules`, {
-    data: {
-      title: data.title ?? `E2E-Modul ${Date.now()}`,
-      description: data.description ?? 'Automatisch durch E2E-Test angelegt',
-      authorName: data.authorName ?? 'Playwright',
-    },
-  });
-  if (!res.ok()) throw new Error(`Modul-Erstellung fehlgeschlagen: ${res.status()}`);
+export const MODULE_IDS = {
+  ebersbach: '00000000-0000-0000-0000-000000000005',
+  neckarFils: '00000000-0000-0000-0000-000000000004',
+  esslingen: '00000000-0000-0000-0000-000000000003',
+} as const;
+
+export function localized(value: LocalizedString | undefined): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  return value.de || Object.values(value).find(Boolean) || '';
+}
+
+export async function getModules(request: APIRequestContext): Promise<any[]> {
+  const res = await request.get(`${API_BASE}/modules`);
+  if (!res.ok()) throw new Error(`Module konnten nicht geladen werden: ${res.status()}`);
   return res.json();
 }
 
-/** Löscht ein Test-Modul wieder. Schluckt Fehler, damit Cleanups robust sind. */
-export async function deleteTestModule(
-  request: APIRequestContext,
-  id: string,
-): Promise<void> {
-  await request.delete(`${API_BASE}/modules/${id}`).catch(() => undefined);
+export async function getEvents(request: APIRequestContext, moduleId: string): Promise<Event[]> {
+  const res = await request.get(`${API_BASE}/modules/${moduleId}/events`);
+  if (!res.ok()) throw new Error(`Ereignisse konnten nicht geladen werden: ${res.status()}`);
+  return res.json();
+}
+
+export async function firstEvent(request: APIRequestContext, moduleId: string): Promise<Event> {
+  const events = await getEvents(request, moduleId);
+  if (events.length === 0) throw new Error(`Modul ${moduleId} enthält keine Ereignisse.`);
+  return events[0];
 }
