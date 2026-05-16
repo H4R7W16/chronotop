@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { usePersistentPanelSize } from '../../hooks/usePersistentPanelSize.js';
 
 export type WorkbenchPresetId = 'map' | 'analysis' | 'sources' | 'tasks';
@@ -48,8 +48,18 @@ export function WorkbenchLayout({
   timelineMin = 128,
   timelineMax = 340,
 }: WorkbenchLayoutProps) {
-  const inspectorSize = usePersistentPanelSize(`${storageKey}:inspector`, 500, inspectorMin, inspectorMax);
-  const timelineSize = usePersistentPanelSize(`${storageKey}:timeline`, 200, timelineMin, timelineMax);
+  const activePresetConfig = PRESETS.find(preset => preset.id === activePreset) ?? PRESETS[1];
+  const inspectorSize = usePersistentPanelSize(`${storageKey}:inspector`, activePresetConfig.inspectorWidth, inspectorMin, inspectorMax);
+  const timelineSize = usePersistentPanelSize(`${storageKey}:timeline`, activePresetConfig.timelineHeight, timelineMin, timelineMax);
+  const isTabletStacked = useMediaQuery('(min-width: 640px) and (max-width: 1023px)');
+  const isTabletLandscape = useMediaQuery('(min-width: 1024px) and (max-width: 1180px) and (max-height: 900px)');
+  const tabletTimelineFloor =
+    activePreset === 'map' ? 200
+    : activePreset === 'sources' ? 240
+    : 300;
+  const effectiveTimelineHeight = isTabletStacked || isTabletLandscape
+    ? Math.min(timelineMax, Math.max(timelineSize.size, tabletTimelineFloor))
+    : timelineSize.size;
 
   function applyPreset(preset: WorkbenchPreset) {
     inspectorSize.setSize(preset.inspectorWidth);
@@ -97,7 +107,7 @@ export function WorkbenchLayout({
               title="Detailbereich ziehen"
             />
             <aside
-              className="w-full min-w-0 lg:w-[var(--inspector-width)] lg:min-w-[var(--inspector-min)] lg:max-w-[min(46vw,var(--inspector-max))] shrink-0 h-[38vh] lg:h-auto min-h-0 border-t lg:border-t-0 lg:border-l border-parchment-300 bg-white flex flex-col"
+              className="w-full min-w-0 lg:w-[var(--inspector-width)] lg:min-w-[var(--inspector-min)] lg:max-w-[min(46vw,var(--inspector-max))] shrink-0 h-[34vh] sm:h-[27vh] lg:h-auto min-h-0 border-t lg:border-t-0 lg:border-l border-parchment-300 bg-white flex flex-col"
               aria-label={inspectorLabel}
               style={{
                 '--inspector-width': `${inspectorSize.size}px`,
@@ -120,10 +130,25 @@ export function WorkbenchLayout({
       />
       <div
         className="shrink-0 min-h-[7rem] max-h-[22rem] border-t border-parchment-300 bg-white"
-        style={{ height: timelineSize.size }}
+        style={{ height: effectiveTimelineHeight }}
       >
         {timeline}
       </div>
     </div>
   );
+}
+
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, [query]);
+
+  return matches;
 }

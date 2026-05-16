@@ -466,6 +466,7 @@ export function TimelineView() {
     filterMode === 'point' ? 'cursor-pointer'
     : filterMode === 'range' ? (isRangeDragging ? 'cursor-grabbing' : 'cursor-crosshair')
     : (isDragging ? 'cursor-grabbing' : 'cursor-grab');
+  const timelineSummary = `${scale.mode === 'segmented' ? 'Phasenansicht' : `${formatYear(scale.minYear)} - ${formatYear(scale.maxYear)}`} · ${visibleEvents.length} von ${candidateEvents.length} Ereignissen`;
 
   if (events.length === 0) {
     return (
@@ -477,27 +478,69 @@ export function TimelineView() {
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-white">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-parchment-200 bg-parchment-50 px-3 py-2 text-xs text-ink-500">
-        <span className="font-serif text-sm italic text-ink-700">Zeitleiste</span>
+      <div className="shrink-0 border-b border-parchment-200 bg-parchment-50 px-3 py-2 text-xs text-ink-500">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
+          <span className="shrink-0 font-serif text-sm italic text-ink-700">Zeitleiste</span>
 
-        <div className="flex overflow-hidden rounded border border-parchment-300 bg-white" role="radiogroup" aria-label="Zeitfilter">
-          <ModeButton active={filterMode === 'all' && !timeFilter.from && !timeFilter.to} onClick={() => switchMode('all')}>Alle</ModeButton>
-          <ModeButton active={filterMode === 'point'} onClick={() => switchMode('point')}>Jahr</ModeButton>
-          <ModeButton active={filterMode === 'range'} onClick={() => switchMode('range')}>Zeitraum</ModeButton>
+          <div className="flex shrink-0 overflow-hidden rounded border border-parchment-300 bg-white" role="radiogroup" aria-label="Zeitfilter">
+            <ModeButton active={filterMode === 'all' && !timeFilter.from && !timeFilter.to} onClick={() => switchMode('all')}>Alle</ModeButton>
+            <ModeButton active={filterMode === 'point'} onClick={() => switchMode('point')}>Jahr</ModeButton>
+            <ModeButton active={filterMode === 'range'} onClick={() => switchMode('range')}>Zeitraum</ModeButton>
+          </div>
+
+          {(timeFilter.from || timeFilter.to) && (
+            <button
+              type="button"
+              onClick={clearTimeFilter}
+              className="max-w-full shrink-0 truncate rounded-full border border-burgundy-200 bg-burgundy-50 px-2.5 py-1 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-100"
+              title="Zeitfilter entfernen"
+            >
+              {formatTimeFilter(timeFilter)} ×
+            </button>
+          )}
+
+          {analysisFocus && (
+            <button
+              type="button"
+              onClick={() => setAnalysisFocus(null)}
+              className="min-w-0 max-w-full truncate rounded-full border border-gold-200 bg-gold-100 px-2.5 py-1 text-[11px] font-semibold text-gold-600 hover:bg-gold-200 md:max-w-[16rem] lg:max-w-[22rem]"
+              title="Analysefokus entfernen"
+            >
+              {analysisFocusSummary(analysisFocus.kind)}: {analysisFocus.label} ×
+            </button>
+          )}
+
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+            <span className="hidden min-w-0 truncate text-[11px] text-ink-400 md:block">
+              {timelineSummary}
+            </span>
+            <div className="flex shrink-0 items-center gap-1">
+              {selectedOffscreen && (
+                <button
+                  type="button"
+                  onClick={() => centerOnEvent(selectedEventId)}
+                  className="h-7 rounded border border-burgundy-200 bg-white px-2 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-50"
+                >
+                  Zur Auswahl
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={zoomToVisibleEvents}
+                className="h-7 rounded border border-parchment-300 bg-white px-2 text-[11px] font-medium text-ink-600 hover:bg-parchment-100"
+              >
+                Treffer
+              </button>
+              <button type="button" onClick={() => zoomBy(1 / 1.4)} aria-label="Verkleinern" className="flex h-7 w-7 items-center justify-center rounded text-sm font-bold text-ink-600 hover:bg-parchment-200">−</button>
+              <button type="button" onClick={zoomReset} aria-label="Ansicht zurücksetzen" className="h-7 rounded px-2 text-[11px] font-semibold text-ink-500 hover:bg-parchment-200">
+                {Math.round(zoom * 100)}%
+              </button>
+              <button type="button" onClick={() => zoomBy(1.4)} aria-label="Vergrößern" className="flex h-7 w-7 items-center justify-center rounded text-sm font-bold text-ink-600 hover:bg-parchment-200">+</button>
+            </div>
+          </div>
         </div>
 
-        {(timeFilter.from || timeFilter.to) && (
-          <button
-            type="button"
-            onClick={clearTimeFilter}
-            className="rounded-full border border-burgundy-200 bg-burgundy-50 px-2.5 py-1 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-100"
-            title="Zeitfilter entfernen"
-          >
-            {formatTimeFilter(timeFilter)} ×
-          </button>
-        )}
-
-        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto pb-0.5">
           <span className="mr-1 shrink-0 text-[11px] font-semibold uppercase text-ink-300">Themen</span>
           <ThemeChip active={themeFilter.length === 0} label="Alle" onClick={() => setThemeFilter([])} />
           {themeOptions.map(option => (
@@ -509,46 +552,10 @@ export function TimelineView() {
               onClick={() => toggleTheme(option.id)}
             />
           ))}
+          <span className="ml-2 shrink-0 text-[11px] text-ink-400 md:hidden">
+            {timelineSummary}
+          </span>
         </div>
-
-        {analysisFocus && (
-          <button
-            type="button"
-            onClick={() => setAnalysisFocus(null)}
-            className="rounded-full border border-gold-200 bg-gold-100 px-2.5 py-1 text-[11px] font-semibold text-gold-600 hover:bg-gold-200"
-            title="Analysefokus entfernen"
-          >
-            {analysisFocusSummary(analysisFocus.kind)}: {analysisFocus.label} ×
-          </button>
-        )}
-
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          {selectedOffscreen && (
-            <button
-              type="button"
-              onClick={() => centerOnEvent(selectedEventId)}
-              className="h-7 rounded border border-burgundy-200 bg-white px-2 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-50"
-            >
-              Zur Auswahl
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={zoomToVisibleEvents}
-            className="h-7 rounded border border-parchment-300 bg-white px-2 text-[11px] font-medium text-ink-600 hover:bg-parchment-100"
-          >
-            Treffer
-          </button>
-          <button type="button" onClick={() => zoomBy(1 / 1.4)} aria-label="Verkleinern" className="flex h-7 w-7 items-center justify-center rounded text-sm font-bold text-ink-600 hover:bg-parchment-200">−</button>
-          <button type="button" onClick={zoomReset} aria-label="Ansicht zurücksetzen" className="h-7 rounded px-2 text-[11px] font-semibold text-ink-500 hover:bg-parchment-200">
-            {Math.round(zoom * 100)}%
-          </button>
-          <button type="button" onClick={() => zoomBy(1.4)} aria-label="Vergrößern" className="flex h-7 w-7 items-center justify-center rounded text-sm font-bold text-ink-600 hover:bg-parchment-200">+</button>
-        </div>
-
-        <span className="basis-full text-[11px] text-ink-400 sm:basis-auto">
-          {scale.mode === 'segmented' ? 'Phasenansicht' : `${formatYear(scale.minYear)} – ${formatYear(scale.maxYear)}`} · {visibleEvents.length} von {candidateEvents.length} Ereignissen
-        </span>
       </div>
 
       <div className="shrink-0 border-b border-parchment-200 bg-parchment-50/80" style={{ height: MINIMAP_HEIGHT }}>
