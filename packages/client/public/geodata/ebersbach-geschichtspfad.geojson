@@ -1,0 +1,206 @@
+{
+  "type": "FeatureCollection",
+  "name": "Chronotop Demo-Geodaten Ebersbach Geschichtspfad",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Fils als Tal-, Mühlen- und Industrieraum",
+        "description": "Aktuelle OSM-Wasserlaufgeometrie als moderne Referenz für den historischen Filsraum: Hochwasser, Mühlen, Kanäle, Gewerbe und Industrie.",
+        "validFrom": "1400",
+        "certainty": "reconstructed",
+        "source": "https://www.openstreetmap.org/",
+        "sourceTitle": "OSM-Wasserlauf als moderne Referenz; Geschichtspfad und Oberamtsbeschreibung als historische Belege",
+        "sourceDetail": "Geschichtspfad PDF S. 11, 26, 32-36, 54; Oberamtsbeschreibung Göppingen [178]-[181]",
+        "qualityStatus": "Moderne Referenzgeometrie; historische Nutzungen und Mühlkanalbezüge rekonstruiert",
+        "sourceIds": ["eb-s05", "eb-s04", "eb-gp-02", "eb-gp-13", "eb-gp-19", "eb-gp-20", "eb-gp-33"],
+        "license": "(c) OpenStreetMap contributors, ODbL 1.0; didaktische Einordnung CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [9.578976, 48.705365], [9.577631, 48.706431], [9.575532, 48.707602],
+          [9.573076, 48.708709], [9.569654, 48.71005], [9.564912, 48.711866],
+          [9.560267, 48.713457], [9.557164, 48.715314], [9.553286, 48.716076],
+          [9.550908, 48.716778], [9.547982, 48.716469], [9.54446, 48.715999],
+          [9.540786, 48.715438], [9.537685, 48.715072], [9.534912, 48.714692],
+          [9.531613, 48.714167], [9.529148, 48.713698], [9.526406, 48.712912],
+          [9.523537, 48.71279], [9.521551, 48.71281], [9.518459, 48.712893],
+          [9.515572, 48.712784], [9.51218, 48.712202], [9.508684, 48.712251],
+          [9.503315, 48.71212], [9.497412, 48.712255]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Filsbahn durch Ebersbach",
+        "description": "Präzise moderne Bahntrassenreferenz der heutigen Strecke 4700; im Modul als historische Raumwirkung der Filsbahn seit 1847 gekennzeichnet.",
+        "validFrom": "1847",
+        "certainty": "reconstructed",
+        "source": "https://www.openstreetmap.org/relation/7692475",
+        "sourceTitle": "OSM-Bahntrasse als moderne Referenz; Geschichtspfad und LEO-BW als historische Einordnung",
+        "sourceDetail": "Geschichtspfad PDF S. 42-43; LEO-BW Ortslexikon zur Industrialisierung in Talaue und Eisenbahnnähe",
+        "qualityStatus": "Präzise heutige Liniengeometrie; historische Raumwirkung seit 1847 didaktisch rekonstruiert",
+        "sourceIds": ["eb-s05", "eb-s03", "eb-gp-25"],
+        "license": "(c) OpenStreetMap contributors, ODbL 1.0; didaktische Einordnung CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [9.466547, 48.707965], [9.471226, 48.707965], [9.476271, 48.708291],
+          [9.485443, 48.711174], [9.489843, 48.71278], [9.493527, 48.713519],
+          [9.49922, 48.713734], [9.505401, 48.71394], [9.51076, 48.714118],
+          [9.515019, 48.714253], [9.518479, 48.714395], [9.522306, 48.714983],
+          [9.526, 48.715939], [9.529867, 48.716932], [9.534053, 48.717804],
+          [9.538096, 48.71824], [9.54392, 48.718275], [9.551869, 48.718038],
+          [9.558665, 48.717455], [9.564682, 48.71595], [9.569375, 48.713899]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ebersbach und Mühlkanalbezug",
+        "description": "Wasserlauf des Ebersbachs als moderne Referenz für Badrain, Mühlkanal, Wasserrechte und frühe Gewerbe. Historische Kanalführungen sind nur teilweise rekonstruierbar.",
+        "validFrom": "1535",
+        "certainty": "reconstructed",
+        "source": "https://www.openstreetmap.org/",
+        "sourceTitle": "OSM-Wasserlauf als moderne Referenz; Geschichtspfad und Oberamtsbeschreibung für Wasser- und Gewerbebezüge",
+        "sourceDetail": "Geschichtspfad PDF S. 11, 26, 34-36; Oberamtsbeschreibung Göppingen [178]-[179]",
+        "qualityStatus": "Moderne Bachgeometrie; historische Mühlkanalführungen nur teilweise rekonstruierbar",
+        "sourceIds": ["eb-s05", "eb-s04", "eb-gp-02", "eb-gp-13", "eb-gp-20"],
+        "license": "(c) OpenStreetMap contributors, ODbL 1.0; didaktische Einordnung CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [9.520294, 48.722682], [9.520015, 48.721434], [9.51971, 48.720323],
+          [9.519467, 48.719767], [9.519761, 48.718758], [9.520008, 48.717658],
+          [9.520671, 48.71718], [9.521013, 48.716655], [9.521887, 48.716333],
+          [9.522722, 48.715979], [9.523203, 48.715522], [9.523545, 48.715092],
+          [9.52372, 48.71484], [9.523608, 48.714691], [9.523343, 48.714322],
+          [9.523288, 48.714064], [9.522823, 48.713664], [9.521551, 48.71281]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Reichsstraße, Chaussee, Ortsdurchfahrt und B10-Achse",
+        "description": "Rekonstruierte Leselinie der alten Durchgangsachse durch Ebersbach: Markt, Rinnenzoll, Post, Wirtshäuser, Ortsdurchfahrt und spätere B10-Belastung.",
+        "validFrom": "1503",
+        "certainty": "reconstructed",
+        "source": "https://www.openstreetmap.org/",
+        "sourceTitle": "OSM-Straßenreferenz; Geschichtspfad, LEO-BW und Oberamtsbeschreibung für Markt-, Post- und Zollfunktion",
+        "sourceDetail": "Geschichtspfad PDF S. 29-30, 38-40; LEO-BW Ortslexikon; Oberamtsbeschreibung Göppingen [177], [181]",
+        "qualityStatus": "Rekonstruierte Leselinie, keine exakte historische Straßenvermessung",
+        "sourceIds": ["eb-s05", "eb-s03", "eb-s04", "eb-gp-16", "eb-gp-17", "eb-gp-22", "eb-gp-23"],
+        "license": "(c) OpenStreetMap contributors, ODbL 1.0; didaktische Einordnung CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [9.509571, 48.713725], [9.513408, 48.713829], [9.515149, 48.71416],
+          [9.519716, 48.714405], [9.523109, 48.714235], [9.524522, 48.714072],
+          [9.526855, 48.714246], [9.529801, 48.715254], [9.531871, 48.716297],
+          [9.534814, 48.717304], [9.537674, 48.717671], [9.540805, 48.717879],
+          [9.543079, 48.71789]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mittelalterlicher Kirchberg-Kern",
+        "description": "Rekonstruierter hochwassersicherer Siedlungskern um Kirchberg und Veitskirche. Untersuchungsraum, keine Katastergrenze.",
+        "validFrom": "1400",
+        "certainty": "reconstructed",
+        "source": "https://www.ebersbach.de/resources/02%20Datenobjekte/PDF-Dateien/Stadtarchiv/Geschichtspfad%20Ebersbach%20an%20der%20Fils_web.pdf",
+        "sourceTitle": "Geschichtspfad, LEO-BW und Oberamtsbeschreibung zum Kirchberg- und Kirchenraum",
+        "sourceDetail": "Geschichtspfad PDF S. 13, 16-17; LEO-BW Kirche und Religion; Oberamtsbeschreibung Göppingen [178], [180]",
+        "qualityStatus": "Rekonstruierter Untersuchungsraum, keine Kataster- oder Burggrenze",
+        "sourceIds": ["eb-gp-04", "eb-gp-06", "eb-s03", "eb-s04"],
+        "license": "Stadt Ebersbach / Stadtarchiv; didaktische Rekonstruktion CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [9.5199, 48.71518], [9.52078, 48.71584], [9.52205, 48.71566],
+          [9.52215, 48.71505], [9.52128, 48.71472], [9.52015, 48.71482],
+          [9.5199, 48.71518]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Filsniederung und Bettelspitz",
+        "description": "Rekonstruierter Niederungsraum südlich des Ortskerns. Er macht Hochwasser, ärmere Wohnlagen, Mühlen, Brücken und Gewerbe als Raumbeziehung sichtbar.",
+        "validFrom": "1700",
+        "certainty": "reconstructed",
+        "source": "https://www.ebersbach.de/resources/02%20Datenobjekte/PDF-Dateien/Stadtarchiv/Geschichtspfad%20Ebersbach%20an%20der%20Fils_web.pdf",
+        "sourceTitle": "Geschichtspfad und Oberamtsbeschreibung zum Fils-, Brücken-, Hochwasser- und Bettelspitzraum",
+        "sourceDetail": "Geschichtspfad PDF S. 27, 32-36; Oberamtsbeschreibung Göppingen [178]-[179]",
+        "qualityStatus": "Rekonstruierter Niederungs- und Problemraum, keine historische Eigentumsgrenze",
+        "sourceIds": ["eb-gp-14", "eb-gp-19", "eb-gp-20", "eb-s04"],
+        "license": "Stadt Ebersbach / Stadtarchiv; didaktische Rekonstruktion CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [9.52055, 48.71225], [9.52475, 48.7121], [9.5281, 48.71292],
+          [9.5272, 48.71372], [9.52325, 48.71383], [9.52095, 48.71343],
+          [9.52055, 48.71225]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Industrieband an Bahn und Fils",
+        "description": "Analytische Fläche für Fabriken, Gewerbe, Bahn, Fils und spätere Umnutzungen. Keine historischen Werksgrenzen, sondern Standortlogik.",
+        "validFrom": "1887",
+        "validTo": "1970",
+        "certainty": "reconstructed",
+        "source": "https://www.ebersbach.de/resources/02%20Datenobjekte/PDF-Dateien/Stadtarchiv/Geschichtspfad%20Ebersbach%20an%20der%20Fils_web.pdf",
+        "sourceTitle": "Geschichtspfad, LEO-BW und moderne Referenzgeometrie zur Standortlogik der Industrie",
+        "sourceDetail": "Geschichtspfad PDF S. 28, 41, 45-46, 54; LEO-BW Ortslexikon zur Industrie am Ortsrand in Talaue und Eisenbahnnähe",
+        "qualityStatus": "Analytische Fläche zur Standortlogik, keine Werks- oder Eigentumsgrenze",
+        "sourceIds": ["eb-gp-15", "eb-gp-24", "eb-gp-27", "eb-gp-33", "eb-s03", "eb-s05"],
+        "license": "Stadt Ebersbach / Stadtarchiv; didaktische Rekonstruktion CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [9.5161, 48.71335], [9.52065, 48.71372], [9.5282, 48.7141],
+          [9.5376, 48.71505], [9.5388, 48.71635], [9.5345, 48.71835],
+          [9.527, 48.71675], [9.5182, 48.71485], [9.5161, 48.71335]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "RAD-, Kriegsgefangenen- und Zwangsarbeitsraum",
+        "description": "Rekonstruierter Problemraum für Reichsarbeitsdienstlager, Kriegsgefangenenkommando und ausländische Zwangsarbeit 1944/45. Genaue Ausdehnung unsicher.",
+        "validFrom": "1934",
+        "validTo": "1945",
+        "certainty": "reconstructed",
+        "source": "https://www.ebersbach.de/resources/02%20Datenobjekte/PDF-Dateien/Stadtarchiv/Geschichtspfad%20Ebersbach%20an%20der%20Fils_web.pdf",
+        "sourceTitle": "Geschichtspfad zum Reichsarbeitsdienstlager, Kriegsgefangenenkommando und zur Zwangsarbeit",
+        "sourceDetail": "Geschichtspfad PDF S. 44, 47-49",
+        "qualityStatus": "Rekonstruierter Problemraum; genaue Lager- und Arbeitsortgrenzen unsicher",
+        "sourceIds": ["eb-gp-26", "eb-gp-28"],
+        "license": "Stadt Ebersbach / Stadtarchiv; didaktische Rekonstruktion CC BY-SA 4.0"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [9.5298, 48.7142], [9.5361, 48.71525], [9.53725, 48.71715],
+          [9.532, 48.71775], [9.5282, 48.7162], [9.5298, 48.7142]
+        ]]
+      }
+    }
+  ]
+}

@@ -1,0 +1,1684 @@
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import {
+  MAP_STYLES, DEFAULT_STYLE_ID, DEFAULT_CENTER, DEFAULT_ZOOM,
+  buildHistoricStyle,
+  type MapStyleOption,
+} from '../../lib/mapStyle.js';
+import { useChronotopStore } from '../../store/useChronotopStore.js';
+import { isEventInTimeRange, sortEventsByDate, eventMatchesSearch, isPlaceValidInRange } from '../../lib/timelineUtils.js';
+import { MapOverlay } from './MapOverlay.js';
+import {
+  buildThemeOptions,
+  certaintyLabel,
+  classifyMovementKind,
+  classifyVisualKind,
+  eventMatchesTheme,
+  geometryHint,
+  movementColor,
+  movementKindLabel,
+  movementMatchesTheme,
+  placeMatchesTheme,
+  visualPalette,
+  type MovementVisualKind,
+} from '../../lib/themeFilters.js';
+import i18n from '../../i18n/index.js';
+import { localized } from '@chronotop/shared';
+import type { Event as ChronotopEvent, Place, PlaceGeometry } from '@chronotop/shared';
+
+interface MapViewProps {
+  onMapClick?: (lngLat: { lng: number; lat: number }) => void;
+  drawMode?: 'polygon' | 'movement' | null;
+  drawPoints?: number[][];
+  onDrawClick?: (lngLat: { lng: number; lat: number }) => void;
+}
+
+interface MarkerEntry {
+  marker: maplibregl.Marker;
+  popup: maplibregl.Popup;
+}
+
+const SHAPE_SOURCE = 'event-shapes';
+const SHAPE_FILL_LAYER = 'event-shapes-fill';
+const SHAPE_OUTLINE_LAYER = 'event-shapes-outline';
+const SHAPE_LINE_CASING_LAYER = 'event-shapes-line-casing';
+const SHAPE_LINE_LAYER = 'event-shapes-line';
+const SHAPE_SCHEMATIC_LINE_CASING_LAYER = 'event-shapes-schematic-line-casing';
+const SHAPE_SCHEMATIC_LINE_LAYER = 'event-shapes-schematic-line';
+const SHAPE_POINT_HALO_LAYER = 'event-shapes-point-halo';
+const SHAPE_POINT_LAYER = 'event-shapes-point';
+const DRAW_SOURCE = 'draw-preview';
+const DRAW_FILL_LAYER = 'draw-preview-fill';
+const DRAW_LINE_LAYER = 'draw-preview-line';
+const DRAW_POINTS_LAYER = 'draw-preview-points';
+const MOVEMENT_SOURCE = 'movement-lines';
+const MOVEMENT_CASING_LAYER = 'movement-line-casing';
+const MOVEMENT_LINE_LAYER = 'movement-line';
+const MOVEMENT_SCHEMATIC_CASING_LAYER = 'movement-line-schematic-casing';
+const MOVEMENT_SCHEMATIC_LINE_LAYER = 'movement-line-schematic';
+const MOVEMENT_NODE_HALO_LAYER = 'movement-node-halo';
+const MOVEMENT_NODE_LAYER = 'movement-node';
+const MAP_HIT_TEST_PADDING = 10;
+const MAP_AUTO_REVEAL_PADDING = { top: 86, right: 48, bottom: 58, left: 56 };
+const MAP_FORCE_REVEAL_PADDING = { top: 92, right: 64, bottom: 70, left: 70 };
+const INTERACTIVE_LAYER_PRIORITY = [
+  MOVEMENT_NODE_LAYER,
+  SHAPE_POINT_LAYER,
+  SHAPE_POINT_HALO_LAYER,
+  MOVEMENT_LINE_LAYER,
+  MOVEMENT_SCHEMATIC_LINE_LAYER,
+  MOVEMENT_CASING_LAYER,
+  MOVEMENT_SCHEMATIC_CASING_LAYER,
+  SHAPE_LINE_LAYER,
+  SHAPE_SCHEMATIC_LINE_LAYER,
+  SHAPE_LINE_CASING_LAYER,
+  SHAPE_SCHEMATIC_LINE_CASING_LAYER,
+  SHAPE_FILL_LAYER,
+  SHAPE_OUTLINE_LAYER,
+];
+
+type MovementNodeRole = 'start' | 'stop' | 'end';
+type MovementNodeLabel = { index: number; label: string; role: MovementNodeRole };
+
+export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+  const mapLoadedRef = useRef(false);
+  const markersRef = useRef<Map<string, MarkerEntry>>(new Map());
+  const hoverPopupRef = useRef<maplibregl.Popup | null>(null);
+  const hasFittedRef = useRef(false);
+  const handledFocusRequestRef = useRef(0);
+
+  const events = useChronotopStore(s => s.events);
+  const places = useChronotopStore(s => s.places);
+  const movements = useChronotopStore(s => s.movements);
+  const concepts = useChronotopStore(s => s.concepts);
+  const currentModule = useChronotopStore(s => s.currentModule);
+  const selectedEventId = useChronotopStore(s => s.selectedEventId);
+  const selectionOrigin = useChronotopStore(s => s.selectionOrigin);
+  const selectionRevision = useChronotopStore(s => s.selectionRevision);
+  const hoveredEventId = useChronotopStore(s => s.hoveredEventId);
+  const mapFollowMode = useChronotopStore(s => s.mapFollowMode);
+  const mapFocusRequest = useChronotopStore(s => s.mapFocusRequest);
+  const timeFilter = useChronotopStore(s => s.timeFilter);
+  const themeFilter = useChronotopStore(s => s.themeFilter);
+  const searchQuery = useChronotopStore(s => s.searchQuery);
+  const selectEvent = useChronotopStore(s => s.selectEvent);
+  const hoverEvent = useChronotopStore(s => s.hoverEvent);
+  const noteMapInteraction = useChronotopStore(s => s.noteMapInteraction);
+  const requestMapFocus = useChronotopStore(s => s.requestMapFocus);
+  const setThemeFilter = useChronotopStore(s => s.setThemeFilter);
+
+  const [showMarkers, setShowMarkers] = useState(true);
+  const [showShapes, setShowShapes] = useState(true);
+  const [showMovements, setShowMovements] = useState(true);
+  const [styleId, setStyleId] = useState<MapStyleOption['id']>(DEFAULT_STYLE_ID);
+  const [styleVersion, setStyleVersion] = useState(0);
+  const programmaticCameraRef = useRef(false);
+  const programmaticCameraTimerRef = useRef<number | null>(null);
+
+  function runProgrammaticCamera(map: maplibregl.Map, move: () => void) {
+    programmaticCameraRef.current = true;
+    if (programmaticCameraTimerRef.current) {
+      window.clearTimeout(programmaticCameraTimerRef.current);
+      programmaticCameraTimerRef.current = null;
+    }
+    const finish = () => {
+      programmaticCameraRef.current = false;
+      map.off('moveend', finish);
+      if (programmaticCameraTimerRef.current) {
+        window.clearTimeout(programmaticCameraTimerRef.current);
+        programmaticCameraTimerRef.current = null;
+      }
+    };
+    try {
+      map.stop();
+      map.once('moveend', finish);
+      move();
+      programmaticCameraTimerRef.current = window.setTimeout(finish, 1400);
+    } catch {
+      finish();
+    }
+  }
+  const themeOptions = useMemo(
+    () => buildThemeOptions(events, places, movements, concepts, i18n.language),
+    [events, places, movements, concepts],
+  );
+  const eventById = useMemo(() => new Map(events.map(event => [event.id, event])), [events]);
+
+  useEffect(() => {
+    setThemeFilter([]);
+  }, [currentModule?.id]);
+
+  useEffect(() => {
+    const available = new Set(themeOptions.map(option => option.id));
+    setThemeFilter(current => {
+      const next = current.filter(id => available.has(id));
+      return next.length === current.length ? current : next;
+    });
+  }, [themeOptions]);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const initialStyle = MAP_STYLES.find(s => s.id === DEFAULT_STYLE_ID)!.spec;
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: initialStyle,
+      center: DEFAULT_CENTER,
+      zoom: DEFAULT_ZOOM,
+      attributionControl: { compact: true },
+    });
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
+
+    (window as any).__chronotopMap = map;
+    map.on('load', () => {
+      mapLoadedRef.current = true;
+      installCustomLayers(map, selectEvent);
+      setStyleVersion(v => v + 1);
+    });
+    map.on('style.load', () => {
+      installCustomLayers(map, selectEvent);
+      setStyleVersion(v => v + 1);
+    });
+
+    mapRef.current = map;
+    const ro = new ResizeObserver(() => mapRef.current?.resize());
+    ro.observe(containerRef.current);
+
+    return () => {
+      if (programmaticCameraTimerRef.current) {
+        window.clearTimeout(programmaticCameraTimerRef.current);
+        programmaticCameraTimerRef.current = null;
+      }
+      ro.disconnect();
+      map.remove();
+      mapRef.current = null;
+      mapLoadedRef.current = false;
+      hasFittedRef.current = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const historicOpt = currentModule?.basemapUrl
+      ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
+      : null;
+    const opt = [...MAP_STYLES, ...(historicOpt ? [historicOpt] : [])].find(s => s.id === styleId);
+    if (opt) map.setStyle(opt.spec);
+  }, [styleId, currentModule]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const handler = (e: maplibregl.MapMouseEvent) => {
+      if ((e as any).defaultPrevented) return;
+      const ll = { lng: e.lngLat.lng, lat: e.lngLat.lat };
+      if ((drawMode === 'polygon' || drawMode === 'movement') && onDrawClick) {
+        onDrawClick(ll);
+        return;
+      }
+      const feature = findClickableFeature(map, e.point);
+      const eventId = feature ? String(feature.properties?.eventId ?? '') : '';
+      if (eventId) {
+        selectEvent(eventId, { origin: 'map' });
+        return;
+      }
+      if (onMapClick) onMapClick(ll);
+    };
+    map.on('click', handler);
+    return () => { map.off('click', handler); };
+  }, [onMapClick, drawMode, onDrawClick, selectEvent]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = drawMode === 'polygon' || drawMode === 'movement' ? 'crosshair' : '';
+  }, [drawMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const pauseAutoFollow = () => {
+      if (programmaticCameraRef.current) return;
+      noteMapInteraction();
+    };
+    map.on('dragstart', pauseAutoFollow);
+    map.on('zoomstart', pauseAutoFollow);
+    map.on('rotatestart', pauseAutoFollow);
+    map.on('pitchstart', pauseAutoFollow);
+    return () => {
+      map.off('dragstart', pauseAutoFollow);
+      map.off('zoomstart', pauseAutoFollow);
+      map.off('rotatestart', pauseAutoFollow);
+      map.off('pitchstart', pauseAutoFollow);
+    };
+  }, [noteMapInteraction]);
+
+  function renderShapesAndMarkers(map: maplibregl.Map, immediate = false) {
+    if (!mapLoadedRef.current && !immediate) return;
+
+    markersRef.current.forEach(m => { m.marker.remove(); m.popup.remove(); });
+    markersRef.current.clear();
+
+    const lang = i18n.language;
+    const sortedEvents = sortEventsByDate(events).filter(e =>
+      e.place
+      && isEventInTimeRange(e, timeFilter.from, timeFilter.to)
+      && eventMatchesSearch(e, searchQuery)
+      && eventMatchesTheme(e, themeFilter, lang)
+    );
+    const eventPlaceIds = new Set(sortedEvents.map(e => e.placeId));
+
+    const eventFeatures = sortedEvents
+      .filter(e =>
+        e.place?.geometry
+        && showShapes
+        && isPlaceValidInRange(e.place.validFrom, e.place.validTo, timeFilter.from, timeFilter.to)
+      )
+      .map((event, i) => {
+        const place = event.place!;
+        const order = sortedEvents.findIndex(e => e.id === event.id) + 1;
+        const placeName = localized(place.name, lang);
+        return {
+          type: 'Feature' as const,
+          id: i,
+          properties: {
+            kind: 'event-place',
+            eventId: event.id,
+            placeId: place.id,
+            number: order,
+            placeName,
+            label: `${order}. ${placeName}`,
+            certainty: place.certainty ?? 'certain',
+            visualKind: classifyVisualKind(place, lang),
+            geometryType: place.geometry!.type,
+          },
+          geometry: place.geometry!,
+        };
+      });
+
+    const standaloneFeatures = places
+      .filter(place =>
+        place.geometry
+        && showShapes
+        && !eventPlaceIds.has(place.id)
+        && isPlaceValidInRange(place.validFrom, place.validTo, timeFilter.from, timeFilter.to)
+        && placeMatchesSearch(place, searchQuery, lang)
+        && placeMatchesTheme(place, themeFilter, lang)
+      )
+      .map((place, i) => {
+        const placeName = localized(place.name, lang);
+        return {
+          type: 'Feature' as const,
+          id: eventFeatures.length + i,
+          properties: {
+            kind: 'standalone-place',
+            eventId: '',
+            placeId: place.id,
+            number: '',
+            placeName,
+            label: placeName,
+            certainty: place.certainty ?? 'certain',
+            visualKind: classifyVisualKind(place, lang),
+            geometryType: place.geometry!.type,
+          },
+          geometry: place.geometry!,
+        };
+      });
+
+    const features = [...eventFeatures, ...standaloneFeatures];
+    const src = map.getSource(SHAPE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData({ type: 'FeatureCollection', features });
+
+    features.forEach(f => {
+      map.setFeatureState({ source: SHAPE_SOURCE, id: f.id }, {
+        selected: f.properties.eventId === selectedEventId,
+        hovered: f.properties.eventId === hoveredEventId,
+      });
+    });
+
+    if (showMarkers) {
+      sortedEvents.forEach((event, index) => {
+        if (!event.place || event.place.geometry) return;
+        addEventMarker(map, event, index + 1, lang);
+      });
+      places
+        .filter(place =>
+          !eventPlaceIds.has(place.id)
+          && !place.geometry
+          && isPlaceValidInRange(place.validFrom, place.validTo, timeFilter.from, timeFilter.to)
+          && placeMatchesSearch(place, searchQuery, lang)
+          && placeMatchesTheme(place, themeFilter, lang)
+        )
+        .forEach(place => addStandalonePlaceMarker(map, place, lang));
+    }
+  }
+
+  function addEventMarker(map: maplibregl.Map, event: any, index: number, lang: string) {
+    const isSelected = event.id === selectedEventId;
+    const isHovered = event.id === hoveredEventId;
+    const hasShape = !!event.place.geometry;
+    const palette = visualPalette(classifyVisualKind(event.place, lang));
+    const el = document.createElement('div');
+    el.className = 'chronotop-marker';
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', `${localized(event.title, lang)} - ${event.timeObject ? localized(event.timeObject.label, lang) : ''}`);
+    el.style.cssText = `
+      width: ${isSelected ? 32 : 26}px;
+      height: ${isSelected ? 32 : 26}px;
+      border-radius: 50%;
+      background: ${isSelected
+        ? `linear-gradient(135deg, ${palette.strong} 0%, ${palette.stroke} 100%)`
+        : isHovered
+        ? `linear-gradient(135deg, ${palette.tint} 0%, ${palette.soft} 100%)`
+        : `linear-gradient(135deg, #ffffff 0%, ${palette.tint} 100%)`};
+      border: 2px solid ${isSelected || isHovered ? palette.stroke : palette.strong};
+      box-shadow: 0 2px 6px rgba(35, 33, 29, 0.35)${hasShape ? `, 0 0 0 4px ${palette.halo}` : ''};
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-family: Georgia, serif;
+      font-weight: 700;
+      font-size: ${isSelected ? '14px' : '12px'};
+      color: ${isSelected ? 'white' : palette.stroke};
+      user-select: none;
+    `;
+    el.textContent = String(index);
+
+    const popupHtml = `
+      <div>
+        <div style="font-size: 14px; font-weight: 700; color: #23211d; margin-bottom: 2px;">
+          ${escapeHtml(localized(event.title, lang))}
+        </div>
+        <div style="font-size: 11px; color: #6f6c66;">
+          ${escapeHtml(event.timeObject ? localized(event.timeObject.label, lang) : '')}${event.sources && event.sources.length > 0 ? ` &middot; ${event.sources.length} Quelle${event.sources.length > 1 ? 'n' : ''}` : ''}${hasShape ? ' &middot; Geometrie' : ''}
+        </div>
+      </div>
+    `;
+    const popup = new maplibregl.Popup({
+      offset: 18, closeButton: false, closeOnClick: false, className: 'chronotop-popup',
+    }).setHTML(popupHtml);
+
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([event.place.lng, event.place.lat])
+      .setPopup(popup)
+      .addTo(map);
+
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (popup.isOpen()) marker.togglePopup();
+      selectEvent(event.id, { origin: 'map' });
+    });
+    el.addEventListener('mouseenter', () => {
+      hoverEvent(event.id);
+      if (!popup.isOpen()) marker.togglePopup();
+    });
+    el.addEventListener('mouseleave', () => {
+      hoverEvent(null);
+      if (popup.isOpen()) marker.togglePopup();
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectEvent(event.id, { origin: 'map' });
+      }
+    });
+    markersRef.current.set(event.id, { marker, popup });
+  }
+
+  function addStandalonePlaceMarker(map: maplibregl.Map, place: Place, lang: string) {
+    const placeName = localized(place.name, lang);
+    const palette = visualPalette(classifyVisualKind(place, lang));
+    const el = document.createElement('div');
+    el.className = 'chronotop-marker chronotop-place-marker';
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', placeName);
+    el.style.cssText = `
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
+    const glyph = document.createElement('span');
+    glyph.style.cssText = `
+      width: 16px;
+      height: 16px;
+      border-radius: 5px;
+      background: ${palette.tint};
+      border: 2px solid ${palette.stroke};
+      box-shadow: 0 2px 8px rgba(35, 33, 29, 0.28);
+      transform: rotate(45deg);
+      pointer-events: none;
+    `;
+    el.appendChild(glyph);
+    const popupHtml = `
+      <div>
+        <div style="font-size: 13px; font-weight: 700; color: #23211d; margin-bottom: 2px;">
+          ${escapeHtml(placeName)}
+        </div>
+        <div style="font-size: 11px; color: #6f6c66;">
+          importierter Kartenort${place.certainty && place.certainty !== 'certain' ? ` &middot; ${escapeHtml(certaintyLabel(place.certainty))}` : ''}
+        </div>
+      </div>
+    `;
+    const popup = new maplibregl.Popup({
+      offset: 18, closeButton: false, closeOnClick: false, className: 'chronotop-popup',
+    }).setHTML(popupHtml);
+    const marker = new maplibregl.Marker({ element: el })
+      .setLngLat([place.lng, place.lat])
+      .setPopup(popup)
+      .addTo(map);
+    el.addEventListener('mouseenter', () => { if (!popup.isOpen()) marker.togglePopup(); });
+    el.addEventListener('mouseleave', () => { if (popup.isOpen()) marker.togglePopup(); });
+    markersRef.current.set(`place-${place.id}`, { marker, popup });
+  }
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const run = () => renderShapesAndMarkers(map);
+    if (mapLoadedRef.current) run();
+    else map.once('load', run);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, places, selectedEventId, timeFilter, searchQuery, showMarkers, showShapes, themeFilter, styleVersion]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapLoadedRef.current) return;
+    const src: any = map.getSource(SHAPE_SOURCE);
+    if (!src || !src._data) return;
+    const fc = src._data as any;
+    fc.features?.forEach((f: any) => {
+      map.setFeatureState({ source: SHAPE_SOURCE, id: f.id }, {
+        selected: f.properties?.eventId === selectedEventId,
+        hovered: f.properties?.eventId === hoveredEventId,
+      });
+    });
+  }, [hoveredEventId, selectedEventId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedEventId || !mapLoadedRef.current) return;
+    const isExplicitFocusRequest = mapFocusRequest !== handledFocusRequestRef.current;
+    handledFocusRequestRef.current = mapFocusRequest;
+    if (!isExplicitFocusRequest && selectionOrigin === 'map') return;
+    if (!isExplicitFocusRequest && mapFollowMode === 'paused') return;
+    const event = events.find(e => e.id === selectedEventId);
+    if (!event?.place) return;
+
+    const selectedMovements = movements
+      .filter(m => m.eventId === selectedEventId)
+      .filter(m => !/(krankenmord|euthanasie|grafeneck|hadamar)/i.test(`${m.name ?? ''} ${m.description ?? ''}`));
+    const movementCoords = selectedMovements
+      .flatMap(m => m.coordinates)
+      .filter(isLngLatPair);
+    const routeText = selectedMovements.map(m => `${m.name ?? ''} ${m.description ?? ''}`).join(' ');
+
+    revealSelectedEvent(map, event, movementCoords, {
+      force: isExplicitFocusRequest || selectionOrigin === 'url',
+      routeMaxZoom: /deport|killesberg|nordbahnhof|riga|theresienstadt/i.test(routeText) ? 11 : 10,
+      move: action => runProgrammaticCamera(map, action),
+    });
+  // Selection should move the camera only by origin-aware rules; filtering or layer toggles should not yank the view away.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId, selectionRevision, selectionOrigin, mapFollowMode, mapFocusRequest, events, movements]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || hasFittedRef.current || (events.length === 0 && places.length === 0)) return;
+
+    const fit = () => {
+      if (hasFittedRef.current) return;
+      const bounds = new maplibregl.LngLatBounds();
+      const eventPlaces = events.filter(e => e.place).map(e => e.place!);
+      [...eventPlaces, ...places].forEach(place => extendBoundsWithPlace(bounds, place));
+      if (bounds.isEmpty()) return;
+      try {
+        runProgrammaticCamera(map, () => {
+          map.fitBounds(bounds, { padding: 58, duration: 0, maxZoom: maxZoomForBounds(bounds) });
+        });
+        hasFittedRef.current = true;
+      } catch { /* map not ready */ }
+    };
+
+    if (mapLoadedRef.current) fit();
+    else map.once('load', fit);
+  }, [events, places]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const render = () => {
+      const src = map.getSource(MOVEMENT_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      const features = showMovements
+        ? movements.filter(mv => movementMatchesTheme(mv, themeFilter, eventById.get(mv.eventId ?? ''), i18n.language)).flatMap((mv, i) => {
+            const visualKind = classifyMovementKind(mv);
+            const color = mv.color || movementColor(visualKind);
+            const line = {
+              type: 'Feature' as const,
+              id: `line-${i}`,
+              properties: {
+                kind: 'movement-line',
+                movementId: mv.id,
+                eventId: mv.eventId ?? '',
+                name: mv.name,
+                description: mv.description ?? '',
+                color,
+                visualKind,
+              },
+              geometry: { type: 'LineString' as const, coordinates: mv.coordinates },
+            };
+            return [line, ...movementNodeFeatures(mv, i, visualKind, color)];
+          })
+        : [];
+      src.setData({ type: 'FeatureCollection', features });
+    };
+
+    if (mapLoadedRef.current) render();
+    else map.once('load', render);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movements, showMovements, themeFilter, styleVersion, eventById]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      const src = map.getSource(DRAW_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      if (!src) return;
+      const points = drawPoints ?? [];
+      const features: any[] = points.map((p, i) => ({
+        type: 'Feature', properties: { i },
+        geometry: { type: 'Point', coordinates: p },
+      }));
+      if (points.length >= 2) features.push({
+        type: 'Feature', properties: {},
+        geometry: { type: 'LineString', coordinates: points },
+      });
+      if (points.length >= 3) {
+        const ring = [...points, points[0]];
+        features.push({
+          type: 'Feature', properties: {},
+          geometry: { type: 'Polygon', coordinates: [ring] },
+        });
+      }
+      src.setData({ type: 'FeatureCollection', features });
+    };
+
+    if (mapLoadedRef.current) apply();
+    else map.once('load', apply);
+  }, [drawPoints]);
+
+  const historicStyleOption = currentModule?.basemapUrl
+    ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
+    : null;
+  const availableStyles: MapStyleOption[] = historicStyleOption
+    ? [...MAP_STYLES, historicStyleOption]
+    : MAP_STYLES;
+  const effectiveStyleId = (!historicStyleOption && styleId === 'historic') ? DEFAULT_STYLE_ID : styleId;
+  const statsLang = i18n.language;
+  const eventPlaceCount = events.filter(e =>
+    e.place
+    && !e.place.geometry
+    && isEventInTimeRange(e, timeFilter.from, timeFilter.to)
+    && eventMatchesSearch(e, searchQuery)
+    && eventMatchesTheme(e, themeFilter, statsLang)
+  ).length;
+  const geometryCount = places.filter(p =>
+    p.geometry
+    && isPlaceValidInRange(p.validFrom, p.validTo, timeFilter.from, timeFilter.to)
+    && placeMatchesSearch(p, searchQuery, statsLang)
+    && placeMatchesTheme(p, themeFilter, statsLang)
+  ).length;
+  const movementCount = movements.filter(m => movementMatchesTheme(m, themeFilter, eventById.get(m.eventId ?? ''), statsLang)).length;
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full" />
+      {selectedEventId && mapFollowMode === 'paused' && (
+        <button
+          type="button"
+          onClick={requestMapFocus}
+          className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border border-burgundy-200 bg-white/96 px-3 py-1.5 text-xs font-semibold text-burgundy-700 shadow-md backdrop-blur hover:bg-burgundy-50 focus:outline-none focus:ring-2 focus:ring-burgundy-300"
+          title="AusgewÃ¤hltes Ereignis im Kartenausschnitt zeigen"
+        >
+          Zur Auswahl
+        </button>
+      )}
+      <MapOverlay
+        availableStyles={availableStyles}
+        styleId={effectiveStyleId}
+        onStyleChange={setStyleId}
+        themeOptions={themeOptions}
+        themeFilter={themeFilter}
+        onThemeFilterChange={setThemeFilter}
+        showMarkers={showMarkers}
+        onToggleMarkers={() => setShowMarkers(v => !v)}
+        showShapes={showShapes}
+        onToggleShapes={() => setShowShapes(v => !v)}
+        showMovements={showMovements}
+        onToggleMovements={() => setShowMovements(v => !v)}
+        layerStats={{ markers: eventPlaceCount, shapes: geometryCount, movements: movementCount }}
+      />
+    </div>
+  );
+
+  function installCustomLayers(map: maplibregl.Map, selectEvent: (id: string | null, options?: { origin: 'map' }) => void) {
+    if (!map.getSource(SHAPE_SOURCE)) {
+      map.addSource(SHAPE_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getLayer(SHAPE_FILL_LAYER)) {
+      map.addLayer({
+        id: SHAPE_FILL_LAYER,
+        type: 'fill',
+        source: SHAPE_SOURCE,
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: {
+          'fill-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#9a2b2b',
+            ['boolean', ['feature-state', 'hovered'], false], '#b94c4a',
+            ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
+            ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
+            ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
+            ['==', ['get', 'visualKind'], 'liberation'], '#245b7d',
+            ['==', ['get', 'visualKind'], 'civic'], '#7a6d58',
+            '#6f8f7f',
+          ],
+          'fill-opacity': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], 0.36,
+            ['boolean', ['feature-state', 'hovered'], false], 0.28,
+            ['==', ['get', 'visualKind'], 'persecution'], 0.22,
+            ['==', ['get', 'visualKind'], 'medicalCrime'], 0.20,
+            ['==', ['get', 'visualKind'], 'forcedLabor'], 0.20,
+            0.18,
+          ],
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_OUTLINE_LAYER)) {
+      map.addLayer({
+        id: SHAPE_OUTLINE_LAYER,
+        type: 'line',
+        source: SHAPE_SOURCE,
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#7d2222',
+            ['boolean', ['feature-state', 'hovered'], false], '#9a2b2b',
+            ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
+            ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
+            ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
+            ['==', ['get', 'visualKind'], 'liberation'], '#245b7d',
+            ['==', ['get', 'visualKind'], 'civic'], '#7a6d58',
+            '#3e6e62',
+          ],
+          'line-width': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], 2.8,
+            ['boolean', ['feature-state', 'hovered'], false], 2.25,
+            1.35,
+          ],
+          'line-opacity': 0.74,
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_LINE_CASING_LAYER)) {
+      map.addLayer({
+        id: SHAPE_LINE_CASING_LAYER,
+        type: 'line',
+        source: SHAPE_SOURCE,
+        filter: ['all', ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false], ['!=', ['get', 'visualKind'], 'energy']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#fffaf0',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 4.6,
+            11, 6.2,
+            14, 8,
+          ],
+          'line-opacity': 0.82,
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_LINE_LAYER)) {
+      map.addLayer({
+        id: SHAPE_LINE_LAYER,
+        type: 'line',
+        source: SHAPE_SOURCE,
+        filter: ['all', ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false], ['!=', ['get', 'visualKind'], 'energy']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#7d2222',
+            ['boolean', ['feature-state', 'hovered'], false], '#9a2b2b',
+            ['==', ['get', 'visualKind'], 'rail'], '#5f3a2e',
+            ['==', ['get', 'visualKind'], 'water'], '#236f8f',
+            ['==', ['get', 'visualKind'], 'energy'], '#a8781c',
+            ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
+            ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
+            ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
+            ['==', ['get', 'visualKind'], 'liberation'], '#245b7d',
+            ['==', ['get', 'visualKind'], 'civic'], '#7a6d58',
+            '#2f6f63',
+          ],
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 3.4,
+              ['boolean', ['feature-state', 'hovered'], false], 3,
+              ['==', ['get', 'visualKind'], 'rail'], 2.4,
+              ['==', ['get', 'visualKind'], 'water'], 2.2,
+              1.8,
+            ],
+            11, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 4.8,
+              ['boolean', ['feature-state', 'hovered'], false], 4.25,
+              ['==', ['get', 'visualKind'], 'rail'], 3.55,
+              ['==', ['get', 'visualKind'], 'water'], 3.35,
+              2.7,
+            ],
+            14, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 6.2,
+              ['boolean', ['feature-state', 'hovered'], false], 5.4,
+              ['==', ['get', 'visualKind'], 'rail'], 4.8,
+              ['==', ['get', 'visualKind'], 'water'], 4.5,
+              3.7,
+            ],
+          ],
+          'line-opacity': 0.9,
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_SCHEMATIC_LINE_CASING_LAYER)) {
+      map.addLayer({
+        id: SHAPE_SCHEMATIC_LINE_CASING_LAYER,
+        type: 'line',
+        source: SHAPE_SOURCE,
+        filter: ['all', ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false], ['==', ['get', 'visualKind'], 'energy']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#fffaf0',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 4.3,
+            11, 5.8,
+            14, 7.4,
+          ],
+          'line-opacity': 0.8,
+          'line-dasharray': [2.4, 1.2],
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_SCHEMATIC_LINE_LAYER)) {
+      map.addLayer({
+        id: SHAPE_SCHEMATIC_LINE_LAYER,
+        type: 'line',
+        source: SHAPE_SOURCE,
+        filter: ['all', ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false], ['==', ['get', 'visualKind'], 'energy']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#7d2222',
+            ['boolean', ['feature-state', 'hovered'], false], '#9a2b2b',
+            '#a8781c',
+          ],
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 3.25,
+              ['boolean', ['feature-state', 'hovered'], false], 2.9,
+              2.25,
+            ],
+            11, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 4.5,
+              ['boolean', ['feature-state', 'hovered'], false], 4.05,
+              3.2,
+            ],
+            14, [
+              'case',
+              ['boolean', ['feature-state', 'selected'], false], 5.6,
+              ['boolean', ['feature-state', 'hovered'], false], 5.05,
+              4.2,
+            ],
+          ],
+          'line-opacity': 0.86,
+          'line-dasharray': [2, 1.35],
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_POINT_HALO_LAYER)) {
+      map.addLayer({
+        id: SHAPE_POINT_HALO_LAYER,
+        type: 'circle',
+        source: SHAPE_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], 12,
+            ['boolean', ['feature-state', 'hovered'], false], 10.5,
+            8.5,
+          ],
+          'circle-color': '#fffaf0',
+          'circle-opacity': 0.9,
+        },
+      });
+    }
+    if (!map.getLayer(SHAPE_POINT_LAYER)) {
+      map.addLayer({
+        id: SHAPE_POINT_LAYER,
+        type: 'circle',
+        source: SHAPE_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], 8.2,
+            ['boolean', ['feature-state', 'hovered'], false], 7.2,
+            5.8,
+          ],
+          'circle-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#7d2222',
+            ['boolean', ['feature-state', 'hovered'], false], '#b94c4a',
+            ['==', ['get', 'visualKind'], 'rail'], '#f3e4c5',
+            ['==', ['get', 'visualKind'], 'energy'], '#f0c96f',
+            ['==', ['get', 'visualKind'], 'water'], '#d8edf5',
+            ['==', ['get', 'visualKind'], 'persecution'], '#f0d6dc',
+            ['==', ['get', 'visualKind'], 'medicalCrime'], '#eadcf0',
+            ['==', ['get', 'visualKind'], 'forcedLabor'], '#f0dfc8',
+            ['==', ['get', 'visualKind'], 'liberation'], '#d7e8f0',
+            ['==', ['get', 'visualKind'], 'civic'], '#ebe3d4',
+            '#ffffff',
+          ],
+          'circle-stroke-color': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], '#4f1717',
+            ['boolean', ['feature-state', 'hovered'], false], '#7d2222',
+            ['==', ['get', 'visualKind'], 'persecution'], '#7b2331',
+            ['==', ['get', 'visualKind'], 'medicalCrime'], '#6f3b87',
+            ['==', ['get', 'visualKind'], 'forcedLabor'], '#8a5a2b',
+            ['==', ['get', 'visualKind'], 'liberation'], '#245b7d',
+            ['==', ['get', 'visualKind'], 'civic'], '#7a6d58',
+            ['==', ['get', 'visualKind'], 'water'], '#236f8f',
+            '#5f3a2e',
+          ],
+          'circle-stroke-width': [
+            'case',
+            ['boolean', ['feature-state', 'selected'], false], 2.8,
+            ['boolean', ['feature-state', 'hovered'], false], 2.4,
+            2,
+          ],
+          'circle-opacity': 0.95,
+        },
+      });
+    }
+    {
+      let hoveredFid: string | number | null = null;
+      const onMove = (e: maplibregl.MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        if (hoveredFid !== null && hoveredFid !== f.id) {
+          map.setFeatureState({ source: SHAPE_SOURCE, id: hoveredFid }, { hovered: false });
+        }
+        hoveredFid = f.id as string | number;
+        const eid = String(f.properties?.eventId ?? '');
+        if (eid) hoverEvent(eid);
+        const html = `
+          <div style="font-size:13px;font-weight:700;color:#23211d">${escapeHtml(String(f.properties?.label ?? ''))}</div>
+          <div style="font-size:11px;color:#6f6c66;margin-top:2px">${escapeHtml(geometryHint(String(f.properties?.geometryType ?? ''), String(f.properties?.certainty ?? 'certain'), String(f.properties?.visualKind ?? '')))}</div>
+        `;
+        if (!hoverPopupRef.current) {
+          hoverPopupRef.current = new maplibregl.Popup({
+            closeButton: false, closeOnClick: false, className: 'chronotop-popup', offset: 8,
+          });
+        }
+        hoverPopupRef.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      };
+      const onLeave = () => {
+        if (hoveredFid !== null) {
+          map.setFeatureState({ source: SHAPE_SOURCE, id: hoveredFid }, { hovered: false });
+          hoveredFid = null;
+        }
+        hoverEvent(null);
+        hoverPopupRef.current?.remove();
+      };
+      const onShapeClick = (e: maplibregl.MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        const eid = String(f?.properties?.eventId ?? '');
+        if (eid) {
+          (e as any).preventDefault?.();
+          selectEvent(eid, { origin: 'map' });
+        }
+      };
+      map.on('mousemove', SHAPE_FILL_LAYER, onMove);
+      map.on('mousemove', SHAPE_OUTLINE_LAYER, onMove);
+      map.on('mousemove', SHAPE_LINE_CASING_LAYER, onMove);
+      map.on('mousemove', SHAPE_LINE_LAYER, onMove);
+      map.on('mousemove', SHAPE_SCHEMATIC_LINE_CASING_LAYER, onMove);
+      map.on('mousemove', SHAPE_SCHEMATIC_LINE_LAYER, onMove);
+      map.on('mousemove', SHAPE_POINT_HALO_LAYER, onMove);
+      map.on('mousemove', SHAPE_POINT_LAYER, onMove);
+      map.on('mouseleave', SHAPE_FILL_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_OUTLINE_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_LINE_CASING_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_LINE_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_SCHEMATIC_LINE_CASING_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_SCHEMATIC_LINE_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_POINT_HALO_LAYER, onLeave);
+      map.on('mouseleave', SHAPE_POINT_LAYER, onLeave);
+      map.on('click', SHAPE_FILL_LAYER, onShapeClick);
+      map.on('click', SHAPE_OUTLINE_LAYER, onShapeClick);
+      map.on('click', SHAPE_LINE_CASING_LAYER, onShapeClick);
+      map.on('click', SHAPE_LINE_LAYER, onShapeClick);
+      map.on('click', SHAPE_SCHEMATIC_LINE_CASING_LAYER, onShapeClick);
+      map.on('click', SHAPE_SCHEMATIC_LINE_LAYER, onShapeClick);
+      map.on('click', SHAPE_POINT_HALO_LAYER, onShapeClick);
+      map.on('click', SHAPE_POINT_LAYER, onShapeClick);
+      map.on('mouseenter', SHAPE_FILL_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_FILL_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_OUTLINE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_OUTLINE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_LINE_CASING_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_LINE_CASING_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_LINE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_LINE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_SCHEMATIC_LINE_CASING_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_SCHEMATIC_LINE_CASING_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_SCHEMATIC_LINE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_SCHEMATIC_LINE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_POINT_HALO_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_POINT_HALO_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', SHAPE_POINT_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', SHAPE_POINT_LAYER, () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    if (!map.getSource(MOVEMENT_SOURCE)) {
+      map.addSource(MOVEMENT_SOURCE, {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+    }
+    if (!map.getLayer(MOVEMENT_LINE_LAYER)) {
+      map.addLayer({
+        id: MOVEMENT_CASING_LAYER,
+        type: 'line',
+        source: MOVEMENT_SOURCE,
+        filter: ['all',
+          ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+          ['!=', ['get', 'visualKind'], 'schematic'],
+          ['!=', ['get', 'visualKind'], 'deportationSchematic'],
+        ],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#fffaf0',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 5.25,
+            11, 7.25,
+            14, 9.5,
+          ],
+          'line-opacity': 0.88,
+        },
+      });
+      map.addLayer({
+        id: MOVEMENT_LINE_LAYER,
+        type: 'line',
+        source: MOVEMENT_SOURCE,
+        filter: ['all',
+          ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+          ['!=', ['get', 'visualKind'], 'schematic'],
+          ['!=', ['get', 'visualKind'], 'deportationSchematic'],
+        ],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 2.25,
+            11, 3.65,
+            14, 5.2,
+          ],
+          'line-opacity': [
+            'case',
+            ['==', ['get', 'visualKind'], 'deportation'], 0.94,
+            0.88,
+          ],
+        },
+      });
+    }
+    if (!map.getLayer(MOVEMENT_SCHEMATIC_LINE_LAYER)) {
+      map.addLayer({
+        id: MOVEMENT_SCHEMATIC_CASING_LAYER,
+        type: 'line',
+        source: MOVEMENT_SOURCE,
+        filter: ['all',
+          ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+          ['match', ['get', 'visualKind'], ['schematic', 'deportationSchematic'], true, false],
+        ],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#fffaf0',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 5,
+            11, 7,
+            14, 9,
+          ],
+          'line-opacity': 0.86,
+          'line-dasharray': [2.4, 1.25],
+        },
+      });
+      map.addLayer({
+        id: MOVEMENT_SCHEMATIC_LINE_LAYER,
+        type: 'line',
+        source: MOVEMENT_SOURCE,
+        filter: ['all',
+          ['match', ['geometry-type'], ['LineString', 'MultiLineString'], true, false],
+          ['match', ['get', 'visualKind'], ['schematic', 'deportationSchematic'], true, false],
+        ],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': ['get', 'color'],
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            7, 2.15,
+            11, 3.4,
+            14, 4.75,
+          ],
+          'line-opacity': 0.9,
+          'line-dasharray': [1.2, 1.05],
+        },
+      });
+    }
+    if (!map.getLayer(MOVEMENT_NODE_LAYER)) {
+      map.addLayer({
+        id: MOVEMENT_NODE_HALO_LAYER,
+        type: 'circle',
+        source: MOVEMENT_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': [
+            'case',
+            ['==', ['get', 'nodeRole'], 'stop'], 7.5,
+            6.5,
+          ],
+          'circle-color': '#fffaf0',
+          'circle-opacity': 0.96,
+        },
+      });
+      map.addLayer({
+        id: MOVEMENT_NODE_LAYER,
+        type: 'circle',
+        source: MOVEMENT_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': [
+            'case',
+            ['==', ['get', 'nodeRole'], 'stop'], 4.75,
+            4,
+          ],
+          'circle-color': [
+            'case',
+            ['==', ['get', 'nodeRole'], 'stop'], '#fffaf0',
+            ['get', 'color'],
+          ],
+          'circle-stroke-color': ['get', 'color'],
+          'circle-stroke-width': [
+            'case',
+            ['==', ['get', 'nodeRole'], 'stop'], 2.5,
+            2,
+          ],
+          'circle-opacity': 0.98,
+        },
+      });
+    }
+    {
+      const onMvMove = (e: maplibregl.MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        const name = String(f.properties?.name ?? '');
+        const color = String(f.properties?.color ?? '#7B2D42');
+        const description = String(f.properties?.description ?? '');
+        const visualKind = String(f.properties?.visualKind ?? 'route');
+        const featureKind = String(f.properties?.kind ?? 'movement-line');
+        const heading = featureKind === 'movement-node' ? 'Achsenpunkt' : 'Historische Achse';
+        const html = `
+          <div style="font-size:13px;font-weight:700;color:${escapeHtml(color)}">${heading}: ${escapeHtml(name)}</div>
+          ${visualKind !== 'route' ? `<div style="font-size:11px;color:#6f6c66;margin-top:2px">${escapeHtml(movementKindLabel(visualKind))}</div>` : ''}
+          ${description ? `<div style="font-size:11px;color:#6f6c66;margin-top:2px">${escapeHtml(description)}</div>` : ''}
+        `;
+        if (!hoverPopupRef.current) {
+          hoverPopupRef.current = new maplibregl.Popup({
+            closeButton: false, closeOnClick: false, className: 'chronotop-popup', offset: 8,
+          });
+        }
+        hoverPopupRef.current.setLngLat(e.lngLat).setHTML(html).addTo(map);
+      };
+      const onMvLeave = () => { hoverPopupRef.current?.remove(); };
+      const onMvClick = (e: maplibregl.MapLayerMouseEvent) => {
+        const f = e.features?.[0];
+        const eid = String(f?.properties?.eventId ?? '');
+        if (eid) {
+          (e as any).preventDefault?.();
+          selectEvent(eid, { origin: 'map' });
+        }
+      };
+      map.on('mousemove', MOVEMENT_LINE_LAYER, onMvMove);
+      map.on('mousemove', MOVEMENT_SCHEMATIC_LINE_LAYER, onMvMove);
+      map.on('mousemove', MOVEMENT_NODE_LAYER, onMvMove);
+      map.on('mouseleave', MOVEMENT_LINE_LAYER, onMvLeave);
+      map.on('mouseleave', MOVEMENT_SCHEMATIC_LINE_LAYER, onMvLeave);
+      map.on('mouseleave', MOVEMENT_NODE_LAYER, onMvLeave);
+      map.on('click', MOVEMENT_LINE_LAYER, onMvClick);
+      map.on('click', MOVEMENT_SCHEMATIC_LINE_LAYER, onMvClick);
+      map.on('click', MOVEMENT_NODE_LAYER, onMvClick);
+      map.on('mouseenter', MOVEMENT_LINE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', MOVEMENT_LINE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', MOVEMENT_SCHEMATIC_LINE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', MOVEMENT_SCHEMATIC_LINE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+      map.on('mouseenter', MOVEMENT_NODE_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+      map.on('mouseleave', MOVEMENT_NODE_LAYER, () => { map.getCanvas().style.cursor = ''; });
+    }
+
+    if (!map.getSource(DRAW_SOURCE)) {
+      map.addSource(DRAW_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getLayer(DRAW_FILL_LAYER)) {
+      map.addLayer({
+        id: DRAW_FILL_LAYER,
+        type: 'fill',
+        source: DRAW_SOURCE,
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': '#9a2b2b', 'fill-opacity': 0.18 },
+      });
+    }
+    if (!map.getLayer(DRAW_LINE_LAYER)) {
+      map.addLayer({
+        id: DRAW_LINE_LAYER,
+        type: 'line',
+        source: DRAW_SOURCE,
+        filter: ['!=', ['geometry-type'], 'Point'],
+        paint: { 'line-color': '#9a2b2b', 'line-width': 2, 'line-dasharray': [2, 2] },
+      });
+    }
+    if (!map.getLayer(DRAW_POINTS_LAYER)) {
+      map.addLayer({
+        id: DRAW_POINTS_LAYER,
+        type: 'circle',
+        source: DRAW_SOURCE,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 5,
+          'circle-color': '#ffffff',
+          'circle-stroke-color': '#9a2b2b',
+          'circle-stroke-width': 2,
+        },
+      });
+    }
+  }
+}
+
+interface RevealSelectedEventOptions {
+  force: boolean;
+  routeMaxZoom: number;
+  move: (action: () => void) => void;
+}
+
+function revealSelectedEvent(
+  map: maplibregl.Map,
+  event: ChronotopEvent,
+  movementCoords: [number, number][],
+  options: RevealSelectedEventOptions,
+) {
+  if (!event.place) return;
+  const coords = movementCoords.length > 1
+    ? movementCoords
+    : event.place.geometry
+      ? collectCoordinates(event.place.geometry.coordinates)
+      : [[event.place.lng, event.place.lat] as [number, number]];
+  if (coords.length === 0) return;
+
+  if (!options.force && isScreenBoundsVisible(map, coords, MAP_AUTO_REVEAL_PADDING)) return;
+
+  if (coords.length === 1) {
+    const targetZoom = options.force
+      ? Math.max(map.getZoom(), 13)
+      : Math.max(map.getZoom(), 11.8);
+    options.move(() => {
+      map.easeTo({
+        center: coords[0],
+        zoom: targetZoom,
+        duration: options.force ? 640 : 480,
+        essential: true,
+      });
+    });
+    return;
+  }
+
+  const bounds = boundsFromCoordinates(coords);
+  if (!bounds) return;
+  const screenBox = screenBoundsForCoordinates(map, coords);
+  const canPanAtCurrentZoom = !options.force
+    && screenBox
+    && screenBoxFitsSafeSize(map, screenBox, MAP_AUTO_REVEAL_PADDING, 0.86);
+
+  if (canPanAtCurrentZoom) {
+    options.move(() => {
+      map.easeTo({
+        center: bounds.getCenter(),
+        zoom: map.getZoom(),
+        duration: 500,
+        essential: true,
+      });
+    });
+    return;
+  }
+
+  const isLine = movementCoords.length > 1 || event.place.geometry?.type.includes('LineString');
+  options.move(() => {
+    map.fitBounds(bounds, {
+      padding: MAP_FORCE_REVEAL_PADDING,
+      duration: options.force ? 720 : 560,
+      maxZoom: isLine ? options.routeMaxZoom : maxZoomForBounds(bounds),
+      essential: true,
+    });
+  });
+}
+
+function boundsFromCoordinates(coords: [number, number][]): maplibregl.LngLatBounds | null {
+  if (coords.length === 0) return null;
+  const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+  coords.slice(1).forEach(coord => bounds.extend(coord));
+  return bounds;
+}
+
+function isScreenBoundsVisible(
+  map: maplibregl.Map,
+  coords: [number, number][],
+  padding: { top: number; right: number; bottom: number; left: number },
+): boolean {
+  const box = screenBoundsForCoordinates(map, coords);
+  if (!box) return false;
+  const safe = safeScreenArea(map, padding);
+  return box.minX >= safe.minX
+    && box.maxX <= safe.maxX
+    && box.minY >= safe.minY
+    && box.maxY <= safe.maxY;
+}
+
+function screenBoxFitsSafeSize(
+  map: maplibregl.Map,
+  box: ScreenBounds,
+  padding: { top: number; right: number; bottom: number; left: number },
+  ratio: number,
+): boolean {
+  const safe = safeScreenArea(map, padding);
+  return (box.maxX - box.minX) <= (safe.maxX - safe.minX) * ratio
+    && (box.maxY - box.minY) <= (safe.maxY - safe.minY) * ratio;
+}
+
+interface ScreenBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+function screenBoundsForCoordinates(map: maplibregl.Map, coords: [number, number][]): ScreenBounds | null {
+  if (coords.length === 0) return null;
+  return coords.reduce<ScreenBounds | null>((bounds, coord) => {
+    const point = map.project(coord);
+    if (!bounds) {
+      return { minX: point.x, minY: point.y, maxX: point.x, maxY: point.y };
+    }
+    return {
+      minX: Math.min(bounds.minX, point.x),
+      minY: Math.min(bounds.minY, point.y),
+      maxX: Math.max(bounds.maxX, point.x),
+      maxY: Math.max(bounds.maxY, point.y),
+    };
+  }, null);
+}
+
+function safeScreenArea(
+  map: maplibregl.Map,
+  padding: { top: number; right: number; bottom: number; left: number },
+): ScreenBounds {
+  const canvas = map.getCanvas();
+  return {
+    minX: padding.left,
+    minY: padding.top,
+    maxX: canvas.clientWidth - padding.right,
+    maxY: canvas.clientHeight - padding.bottom,
+  };
+}
+
+function findClickableFeature(map: maplibregl.Map, point: maplibregl.PointLike): maplibregl.MapGeoJSONFeature | null {
+  const layers = INTERACTIVE_LAYER_PRIORITY.filter(layer => !!map.getLayer(layer));
+  if (layers.length === 0) return null;
+  const p = normalizeScreenPoint(point);
+  const bbox: [[number, number], [number, number]] = [
+    [p.x - MAP_HIT_TEST_PADDING, p.y - MAP_HIT_TEST_PADDING],
+    [p.x + MAP_HIT_TEST_PADDING, p.y + MAP_HIT_TEST_PADDING],
+  ];
+  const features = map.queryRenderedFeatures(bbox, { layers })
+    .filter(feature => String(feature.properties?.eventId ?? ''));
+  if (features.length === 0) return null;
+  return features.sort((a, b) =>
+    layerPriority(a.layer.id) - layerPriority(b.layer.id)
+    || featureDistanceToPoint(map, a, p) - featureDistanceToPoint(map, b, p)
+  )[0] ?? null;
+}
+
+function layerPriority(layerId: string): number {
+  const index = INTERACTIVE_LAYER_PRIORITY.indexOf(layerId);
+  return index === -1 ? INTERACTIVE_LAYER_PRIORITY.length : index;
+}
+
+function normalizeScreenPoint(point: maplibregl.PointLike): { x: number; y: number } {
+  return Array.isArray(point) ? { x: point[0], y: point[1] } : { x: point.x, y: point.y };
+}
+
+function featureDistanceToPoint(
+  map: maplibregl.Map,
+  feature: maplibregl.MapGeoJSONFeature,
+  point: { x: number; y: number },
+): number {
+  return geometryDistanceToPoint(map, feature.geometry, point);
+}
+
+function geometryDistanceToPoint(
+  map: maplibregl.Map,
+  geometry: GeoJSON.Geometry,
+  point: { x: number; y: number },
+): number {
+  switch (geometry.type) {
+    case 'Point':
+      return lngLatDistance(map, geometry.coordinates, point);
+    case 'MultiPoint':
+      return Math.min(...geometry.coordinates.map(coord => lngLatDistance(map, coord, point)));
+    case 'LineString':
+      return lineDistance(map, geometry.coordinates, point);
+    case 'MultiLineString':
+      return Math.min(...geometry.coordinates.map(line => lineDistance(map, line, point)));
+    case 'Polygon':
+      return polygonDistance(map, geometry.coordinates, point);
+    case 'MultiPolygon':
+      return Math.min(...geometry.coordinates.map(polygon => polygonDistance(map, polygon, point)));
+    default:
+      return Number.POSITIVE_INFINITY;
+  }
+}
+
+function lngLatDistance(map: maplibregl.Map, coord: GeoJSON.Position, point: { x: number; y: number }): number {
+  const projected = map.project([coord[0], coord[1]]);
+  return Math.hypot(projected.x - point.x, projected.y - point.y);
+}
+
+function lineDistance(map: maplibregl.Map, coords: GeoJSON.Position[], point: { x: number; y: number }): number {
+  if (coords.length === 0) return Number.POSITIVE_INFINITY;
+  const projected = coords.map(coord => normalizeScreenPoint(map.project([coord[0], coord[1]])));
+  if (projected.length === 1) return pointDistance(projected[0], point);
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < projected.length; i += 1) {
+    min = Math.min(min, segmentDistance(point, projected[i - 1], projected[i]));
+  }
+  return min;
+}
+
+function polygonDistance(map: maplibregl.Map, rings: GeoJSON.Position[][], point: { x: number; y: number }): number {
+  const projectedRings = rings.map(ring => ring.map(coord => normalizeScreenPoint(map.project([coord[0], coord[1]]))));
+  if (projectedRings.length === 0) return Number.POSITIVE_INFINITY;
+  if (pointInPolygon(point, projectedRings)) return 0;
+  return Math.min(...projectedRings.map(ring => ringDistance(ring, point)));
+}
+
+function ringDistance(ring: Array<{ x: number; y: number }>, point: { x: number; y: number }): number {
+  if (ring.length === 0) return Number.POSITIVE_INFINITY;
+  if (ring.length === 1) return pointDistance(ring[0], point);
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < ring.length; i += 1) {
+    min = Math.min(min, segmentDistance(point, ring[i], ring[(i + 1) % ring.length]));
+  }
+  return min;
+}
+
+function pointInPolygon(point: { x: number; y: number }, rings: Array<Array<{ x: number; y: number }>>): boolean {
+  if (rings.length === 0 || !pointInRing(point, rings[0])) return false;
+  return !rings.slice(1).some(ring => pointInRing(point, ring));
+}
+
+function pointInRing(point: { x: number; y: number }, ring: Array<{ x: number; y: number }>): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const pi = ring[i];
+    const pj = ring[j];
+    const intersects = (pi.y > point.y) !== (pj.y > point.y)
+      && point.x < ((pj.x - pi.x) * (point.y - pi.y)) / ((pj.y - pi.y) || Number.EPSILON) + pi.x;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+function pointDistance(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function segmentDistance(
+  point: { x: number; y: number },
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+): number {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  if (dx === 0 && dy === 0) return pointDistance(point, start);
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)));
+  return pointDistance(point, { x: start.x + t * dx, y: start.y + t * dy });
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+}
+
+function placeMatchesSearch(place: Place, query: string, lang: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return [
+    localized(place.name, lang),
+    place.description ? localized(place.description, lang) : '',
+    place.wikidataId ?? '',
+  ].some(value => value.toLowerCase().includes(q));
+}
+
+function movementNodeFeatures(
+  movement: { id: string; eventId?: string | null; name?: string; description?: string; coordinates: number[][] },
+  movementIndex: number,
+  visualKind: MovementVisualKind,
+  color: string,
+) {
+  const labels = movementNodeLabels(movement);
+  if (labels.length === 0) return [];
+  return labels
+    .filter(node => movement.coordinates[node.index])
+    .map((node, nodeIndex) => ({
+      type: 'Feature' as const,
+      id: `node-${movementIndex}-${nodeIndex}`,
+      properties: {
+        kind: 'movement-node',
+        movementId: movement.id,
+        eventId: movement.eventId ?? '',
+        name: node.label,
+        description: movement.description ?? '',
+        color,
+        visualKind,
+        nodeRole: node.role,
+      },
+      geometry: {
+        type: 'Point' as const,
+        coordinates: movement.coordinates[node.index],
+      },
+    }));
+}
+
+function movementNodeLabels(movement: { id: string; name?: string; coordinates: number[][] }): MovementNodeLabel[] {
+  const text = `${movement.id} ${movement.name ?? ''}`.toLowerCase();
+  const last = movement.coordinates.length - 1;
+  if (last < 1) return [];
+  if (text.includes('es-mv02a')) {
+    const nodes: MovementNodeLabel[] = [
+      { index: 0, label: 'Esslingen Bahnhof', role: 'start' },
+      { index: Math.min(3, last), label: 'Untertuerkheim / Neckartal', role: 'stop' },
+      { index: Math.min(8, last), label: 'Bad Cannstatt Bahnraum', role: 'stop' },
+      { index: last, label: 'Stuttgart Nordbahnhof', role: 'end' },
+    ];
+    return uniqueMovementNodes(nodes, last);
+  }
+  if (text.includes('es-mv02b')) {
+    const nodes: MovementNodeLabel[] = [
+      { index: 0, label: 'Killesberg Sammelplatz', role: 'stop' },
+      { index: Math.min(2, last), label: 'Stuttgarter Stadtbezug', role: 'stop' },
+      { index: last, label: 'Stuttgart Nordbahnhof', role: 'end' },
+    ];
+    return uniqueMovementNodes(nodes, last);
+  }
+  if (text.includes('pogromweg')) {
+    return [
+      { index: 0, label: 'Marktplatz', role: 'start' },
+      { index: Math.min(2, last), label: 'Synagoge Im Heppaecher', role: 'stop' },
+      { index: last, label: 'Wilhelmspflege', role: 'end' },
+    ];
+  }
+  if (text.includes('kriegsende')) {
+    const nodes: MovementNodeLabel[] = [
+      { index: 0, label: 'Waeldenbronn', role: 'start' },
+      { index: 1, label: 'Esslinger Innenstadt', role: 'stop' },
+      { index: last, label: 'Pliensaubruecke', role: 'end' },
+    ];
+    return uniqueMovementNodes(nodes, last);
+  }
+  return [
+    { index: 0, label: 'Start', role: 'start' },
+    { index: last, label: 'Ziel', role: 'end' },
+  ];
+}
+
+function uniqueMovementNodes(nodes: MovementNodeLabel[], last: number): MovementNodeLabel[] {
+  return nodes.filter((node, index, all) =>
+    node.index <= last && all.findIndex(other => other.index === node.index) === index
+  );
+}
+
+function fitMapToCoordinates(map: maplibregl.Map, coords: [number, number][], maxZoom = 10) {
+  if (coords.length === 0) return;
+  if (coords.length === 1) {
+    map.easeTo({
+      center: coords[0],
+      zoom: Math.max(map.getZoom(), maxZoom),
+      duration: 650,
+    });
+    return;
+  }
+  const lngs = coords.map(c => c[0]);
+  const lats = coords.map(c => c[1]);
+  map.fitBounds([
+    [Math.min(...lngs), Math.min(...lats)],
+    [Math.max(...lngs), Math.max(...lats)],
+  ], {
+    padding: 84,
+    maxZoom,
+    duration: 900,
+  });
+}
+
+function fitMapToGeometry(map: maplibregl.Map, geometry: PlaceGeometry, maxZoom?: number) {
+  const coords = collectCoordinates(geometry.coordinates);
+  if (coords.length === 1) {
+    map.easeTo({
+      center: coords[0],
+      zoom: Math.max(map.getZoom(), maxZoom ?? 13),
+      duration: 650,
+    });
+    return;
+  }
+  const bounds = computeGeometryBounds(geometry);
+  if (!bounds) return;
+  map.fitBounds(bounds, {
+    padding: 80,
+    maxZoom: maxZoom ?? maxZoomForBounds(bounds),
+    duration: 650,
+  });
+}
+
+function maxZoomForBounds(boundsLike: maplibregl.LngLatBoundsLike): number {
+  const bounds = maplibregl.LngLatBounds.convert(boundsLike);
+  const span = Math.max(
+    Math.abs(bounds.getEast() - bounds.getWest()),
+    Math.abs(bounds.getNorth() - bounds.getSouth()),
+  );
+  if (span < 0.025) return 14.5;
+  if (span < 0.12) return 12.8;
+  if (span < 0.3) return 11.5;
+  if (span < 1.2) return 10;
+  return 7;
+}
+
+function computeGeometryBounds(geom: PlaceGeometry): maplibregl.LngLatBoundsLike | null {
+  const coords = collectCoordinates(geom.coordinates);
+  if (coords.length === 0) return null;
+  const lngs = coords.map(c => c[0]);
+  const lats = coords.map(c => c[1]);
+  return [
+    [Math.min(...lngs), Math.min(...lats)],
+    [Math.max(...lngs), Math.max(...lats)],
+  ];
+}
+
+function extendBoundsWithPlace(bounds: maplibregl.LngLatBounds, place: Place) {
+  if (place.geometry) {
+    collectCoordinates(place.geometry.coordinates).forEach(coord => bounds.extend(coord));
+    return;
+  }
+  bounds.extend([place.lng, place.lat]);
+}
+
+function collectCoordinates(value: unknown): [number, number][] {
+  const coords: [number, number][] = [];
+  const visit = (v: unknown) => {
+    if (Array.isArray(v) && typeof v[0] === 'number' && typeof v[1] === 'number') {
+      coords.push([v[0], v[1]]);
+    } else if (Array.isArray(v)) {
+      v.forEach(visit);
+    }
+  };
+  visit(value);
+  return coords;
+}
+
+function isLngLatPair(value: unknown): value is [number, number] {
+  return Array.isArray(value)
+    && typeof value[0] === 'number'
+    && typeof value[1] === 'number';
+}

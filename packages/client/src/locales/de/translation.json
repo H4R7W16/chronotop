@@ -1,0 +1,89 @@
+{
+  "app": {
+    "title": "Chronotop",
+    "subtitle": "Historische Zusammenhänge erkunden"
+  },
+  "nav": {
+    "modules": "Module",
+    "learn": "Erkunden",
+    "author": "Erstellen",
+    "export": "Exportieren"
+  },
+  "module": {
+    "create": "Neues Modul",
+    "title": "Titel",
+    "description": "Beschreibung",
+    "authorName": "Autor/in",
+    "noModules": "Noch keine Module vorhanden.",
+    "delete": "Modul löschen",
+    "confirmDelete": "Modul wirklich löschen? Alle Inhalte gehen verloren."
+  },
+  "event": {
+    "create": "Neues Ereignis",
+    "title": "Titel",
+    "description": "Beschreibung",
+    "place": "Ort",
+    "time": "Zeit",
+    "sources": "Quellen",
+    "followsOn": "Folgt auf",
+    "partOf": "Ist Teil von",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "noEvents": "Noch keine Ereignisse vorhanden.",
+    "selectOnMap": "Wählen Sie ein Ereignis auf der Karte oder Zeitleiste."
+  },
+  "place": {
+    "search": "Ort suchen (Wikidata)",
+    "clickMap": "Oder auf die Karte klicken",
+    "name": "Ortsname",
+    "lat": "Breitengrad",
+    "lng": "Längengrad"
+  },
+  "time": {
+    "instant": "Zeitpunkt",
+    "span": "Zeitraum",
+    "date": "Datum",
+    "startDate": "Von",
+    "endDate": "Bis",
+    "label": "Anzeige-Label",
+    "certainty": "Sicherheit",
+    "certain": "sicher",
+    "probable": "wahrscheinlich",
+    "contested": "umstritten",
+    "reconstructed": "rekonstruiert"
+  },
+  "source": {
+    "add": "Quelle hinzufügen",
+    "title": "Titel",
+    "type": "Typ",
+    "url": "URL",
+    "iiifImage": "IIIF-Bild-URL",
+    "iiifManifest": "IIIF-Manifest-URL",
+    "license": "Lizenz",
+    "description": "Beschreibung",
+    "types": {
+      "text": "Text",
+      "image": "Bild",
+      "map": "Karte",
+      "statistics": "Statistik",
+      "law": "Gesetz",
+      "speech": "Rede",
+      "object": "Objekt",
+      "audio": "Audio",
+      "video": "Video"
+    }
+  },
+  "export": {
+    "title": "JSON-LD Export",
+    "download": "Herunterladen",
+    "preview": "Vorschau"
+  },
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "back": "Zurück",
+    "loading": "Laden..."
+  }
+}

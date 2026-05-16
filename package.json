@@ -1,0 +1,36 @@
+{
+  "name": "chronotop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "workspaces": [
+    "shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w packages/server\" \"npm run dev -w packages/client\"",
+    "dev:server": "npm run dev -w packages/server",
+    "dev:client": "npm run dev -w packages/client",
+    "build": "npm run build -w packages/client",
+    "db:migrate": "npm run migrate -w packages/server",
+    "db:seed": "npm run seed -w packages/server",
+    "seed:reformation": "npm run seed -w packages/server",
+    "seed:9november": "tsx packages/server/src/seed/november-9.ts",
+    "seed:esslingen": "npm run seed:esslingen -w packages/server",
+    "seed:reformation-extras": "tsx packages/server/src/seed/reformation-extras.ts",
+    "seed:local": "npm run db:migrate && npm run seed:demo-cleanup && npm run seed:esslingen && npm run seed:neckar-fils && npm run seed:ebersbach",
+    "seed:geometries": "tsx packages/server/src/seed/geometries-precise.ts",
+    "seed:neckar-fils": "tsx packages/server/src/seed/industrialization-neckar-fils.ts",
+    "seed:ebersbach": "tsx packages/server/src/seed/ebersbach-local-history.ts",
+    "seed:berlin-wall": "tsx packages/server/src/seed/berlin-wall.ts",
+    "seed:demo-cleanup": "tsx packages/server/src/seed/demo-cleanup.ts",
+    "test": "npm run test -w packages/server && npm run test -w packages/client",
+    "test:e2e": "npx playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.0"
+  }
+}
