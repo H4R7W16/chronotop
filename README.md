@@ -14,6 +14,7 @@ Der Name knüpft an Michail Bachtins Begriff der untrennbaren Verschränkung von
 
 Die öffentliche Beta ist als **statische GitHub-Pages-Demo** gedacht:
 
+- Live-Demo: <https://h4r7w16.github.io/chronotop/>
 - keine Server-Logins und keine persistente Speicherung auf GitHub Pages
 - drei kuratierte Module: Ebersbach, Esslingen 1933-45, Industrialisierung an Neckar und Fils
 - Lernendenansicht, Autorendemo und Export sind testbar
