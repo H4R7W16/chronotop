@@ -37,7 +37,7 @@ jobs:
       - name: Prepare curated demo data
         run: npm run pages:prepare
         env:
-          DB_PATH: packages/server/data/pages-demo.db
+          DB_PATH: ${{ github.workspace }}/packages/server/data/pages-demo.db
 
       - name: Build static demo
         run: npm run build:pages
