@@ -15,7 +15,9 @@ interface BottomInspectorProps {
 const SNAP_ORDER: BottomInspectorSnap[] = ['peek', 'half', 'full'];
 
 export function BottomInspector({ children, ariaLabel, triggerKey, peekLabel }: BottomInspectorProps) {
-  const [snap, setSnap] = useState<BottomInspectorSnap>('peek');
+  // Wenn beim ersten Render bereits ein Trigger gesetzt ist (z. B. Permalink mit
+  // ausgewaehltem Event), gleich auf 'half' starten - sonst peek.
+  const [snap, setSnap] = useState<BottomInspectorSnap>(triggerKey ? 'half' : 'peek');
   const prevTriggerRef = useRef<string | null | undefined>(triggerKey);
 
   // Wenn ein neuer Trigger (z. B. Event-Auswahl) reinkommt, auf 'half' öffnen.
@@ -31,10 +33,13 @@ export function BottomInspector({ children, ariaLabel, triggerKey, peekLabel }: 
   }, [triggerKey]);
 
   const next = SNAP_ORDER[(SNAP_ORDER.indexOf(snap) + 1) % SNAP_ORDER.length];
-  const heightClass =
-    snap === 'peek' ? 'h-[3.25rem]'
-    : snap === 'half' ? 'h-[50%]'
-    : 'h-[92%]';
+  // Hoehe relativ zur Karten-Flaeche (parent). Peek = fester Handle-Streifen.
+  // CSS-Transition wuerde zwischen rem und % nicht zuverlaessig aufloesen,
+  // daher wechseln wir hier hart - die Snap-States sind ohnehin klar getrennt.
+  const heightStyle =
+    snap === 'peek' ? { height: '3.25rem' }
+    : snap === 'half' ? { height: '55%' }
+    : { height: '92%' };
 
   const cycleLabel =
     snap === 'peek' ? 'Detailbereich öffnen'
@@ -53,7 +58,8 @@ export function BottomInspector({ children, ariaLabel, triggerKey, peekLabel }: 
       )}
       <aside
         aria-label={ariaLabel}
-        className={`absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-xl border-t border-parchment-300 bg-white shadow-[0_-8px_24px_rgba(35,33,29,0.18)] transition-[height] duration-200 ease-out ${heightClass}`}
+        style={heightStyle}
+        className="absolute inset-x-0 bottom-0 z-20 flex flex-col overflow-hidden rounded-t-xl border-t border-parchment-300 bg-white shadow-[0_-8px_24px_rgba(35,33,29,0.18)]"
       >
         <button
           type="button"
