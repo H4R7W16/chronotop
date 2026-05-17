@@ -141,14 +141,14 @@ export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
           <div className="flex shrink-0 items-center gap-1">
             <button
               onClick={handleCopyLink}
-              className="rounded border border-parchment-300 bg-white px-2 py-1 text-[11px] font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
+              className="min-h-[36px] rounded border border-parchment-300 bg-white px-2.5 text-xs font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
               title="Permalink fuer diese Ereignisauswahl kopieren"
             >
               Link
             </button>
             <button
               onClick={() => selectEvent(null, { origin: 'detail' })}
-              className="rounded border border-parchment-300 bg-white px-2 py-1 text-[11px] font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
+              className="min-h-[36px] rounded border border-parchment-300 bg-white px-2.5 text-xs font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
             >
               Schließen
             </button>
@@ -163,10 +163,10 @@ export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
           }`}>
             <span className="font-semibold">{analysisFocusSummary(analysisFocus.kind)}: {analysisFocus.label}</span>
             <span>{focusMatches.length} passende Einträge</span>
-            <button type="button" onClick={requestAnalysisFocusMapFit} className="ml-auto rounded border border-gold-200 bg-white px-2 py-0.5 font-semibold text-gold-600 hover:bg-gold-50">
+            <button type="button" onClick={requestAnalysisFocusMapFit} className="ml-auto min-h-[36px] rounded border border-gold-200 bg-white px-3 font-semibold text-gold-600 hover:bg-gold-50">
               Karte fokussieren
             </button>
-            <button type="button" onClick={() => setAnalysisFocus(null)} className="rounded border border-parchment-300 bg-white px-2 py-0.5 font-semibold text-ink-500 hover:bg-parchment-50">
+            <button type="button" onClick={() => setAnalysisFocus(null)} className="min-h-[36px] rounded border border-parchment-300 bg-white px-3 font-semibold text-ink-500 hover:bg-parchment-50">
               Lösen
             </button>
           </div>
@@ -179,7 +179,7 @@ export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
             key={tab.id}
             type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={`min-w-0 flex-1 border-b-2 px-2 py-2 text-xs font-medium transition-colors ${
+            className={`min-h-[44px] min-w-0 flex-1 border-b-2 px-2 text-sm font-medium transition-colors ${
               activeTab === tab.id
                 ? 'border-burgundy-600 text-burgundy-700'
                 : 'border-transparent text-ink-500 hover:bg-parchment-50 hover:text-ink-800'
@@ -417,7 +417,7 @@ export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
                       <button
                         type="button"
                         onClick={() => applyFocus('source', source.id, loc(source.title))}
-                        className="ml-auto rounded border border-parchment-300 bg-parchment-50 px-2 py-0.5 text-[11px] font-semibold text-ink-600 hover:border-gold-200 hover:bg-gold-50"
+                        className="ml-auto min-h-[36px] rounded border border-parchment-300 bg-parchment-50 px-3 text-xs font-semibold text-ink-600 hover:border-gold-200 hover:bg-gold-50"
                       >
                         Quellenfokus
                       </button>
@@ -489,7 +489,7 @@ function FocusMetaCard(props: {
         {props.badge && <CertBadge meta={props.badge} />}
       </div>
       {props.detail && <p className="mt-1 text-xs text-ink-500">{props.detail}</p>}
-      <button type="button" onClick={props.onFit} className="mt-2 rounded border border-parchment-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-ink-500 hover:border-gold-200 hover:bg-gold-50">
+      <button type="button" onClick={props.onFit} className="mt-2 min-h-[36px] rounded border border-parchment-300 bg-white px-3 text-xs font-semibold text-ink-500 hover:border-gold-200 hover:bg-gold-50">
         auf Karte zeigen
       </button>
     </div>
@@ -590,7 +590,7 @@ function FocusCardButton({
           auf Karte zeigen
         </button>
         {href && (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="rounded border border-parchment-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-50">
+          <a href={href} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-[36px] items-center rounded border border-parchment-300 bg-white px-3 text-xs font-semibold text-burgundy-700 hover:bg-burgundy-50">
             extern
           </a>
         )}
