@@ -7,6 +7,7 @@ import { DetailPanel } from '../detail/DetailPanel.js';
 import { TaskPanel } from '../tasks/TaskPanel.js';
 import { WorkbenchLayout, type WorkbenchPresetId } from './WorkbenchLayout.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
+import { useLocalized } from '../../i18n/useLocalized.js';
 import { api } from '../../api/client.js';
 
 type RightTab = 'detail' | 'tasks';
@@ -15,9 +16,12 @@ type DetailTab = 'overview' | 'context' | 'sources' | 'notes';
 export function LearningLayout() {
   useModuleData();
   useUrlSync();
+  const loc = useLocalized();
   const selectedEventId = useChronotopStore(s => s.selectedEventId);
+  const events         = useChronotopStore(s => s.events);
   const fullscreen      = useChronotopStore(s => s.fullscreen);
   const moduleId        = useChronotopStore(s => s.currentModuleId);
+  const selectedEvent = selectedEventId ? events.find(e => e.id === selectedEventId) : null;
 
   const [rightTab, setRightTab] = useState<RightTab>('detail');
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
@@ -50,6 +54,16 @@ export function LearningLayout() {
 
   const showRightPanel = showTabs || !!selectedEventId;
 
+  const peekLabel = selectedEvent
+    ? loc(selectedEvent.title)
+    : showTabs
+      ? `${taskCount} Aufgaben`
+      : 'Details';
+
+  // Trigger zwingt das Bottom-Sheet auf Tablet zum Aufklappen bei neuer Auswahl
+  // oder beim Wechsel in den Aufgaben-Modus.
+  const inspectorTriggerKey = selectedEventId ?? (showTabs ? `tasks:${moduleId ?? ''}` : null);
+
   const handlePresetSelect = (preset: WorkbenchPresetId) => {
     setLayoutPreset(preset);
     if (preset === 'tasks' && showTabs) {
@@ -67,6 +81,8 @@ export function LearningLayout() {
       timeline={<TimelineView />}
       inspectorVisible={!fullscreen && showRightPanel}
       inspectorLabel="Details, Quellen und Aufgaben"
+      inspectorTriggerKey={inspectorTriggerKey}
+      inspectorPeekLabel={peekLabel}
       activePreset={layoutPreset}
       onPresetSelect={handlePresetSelect}
       toolbarMeta={selectedEventId ? 'Ereignis ausgewählt' : showTabs ? 'Aufgabenmodus' : undefined}
