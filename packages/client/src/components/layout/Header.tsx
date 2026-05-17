@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useAuthStore } from '../../store/useAuthStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
+import { useIsTablet } from '../../hooks/useMediaQuery.js';
 import { isStaticDemo } from '../../config.js';
 
 export function Header() {
@@ -11,6 +13,7 @@ export function Header() {
   const loc = useLocalized();
   const location = useLocation();
   const navigate = useNavigate();
+  const isTablet = useIsTablet();
   const moduleId = useChronotopStore(s => s.currentModuleId);
   const modules = useChronotopStore(s => s.modules);
   const searchQuery = useChronotopStore(s => s.searchQuery);
@@ -19,11 +22,110 @@ export function Header() {
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   const isActive = (path: string) => location.pathname.startsWith(path);
+
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
 
   async function handleLogout() {
     await logout();
     navigate('/login');
+  }
+
+  if (isTablet) {
+    return (
+      <header className="bg-white text-ink-800 border-b border-ink-100 shrink-0 shadow-sm">
+        <div className="px-3 py-1.5 flex items-center gap-2 min-h-[48px]">
+          <Link to="/" className="flex items-center gap-2 hover:text-burgundy-600 transition-colors shrink-0" aria-label={t('app.title')}>
+            <span className="h-8 w-8 rounded-md bg-ink-800 text-white flex items-center justify-center font-serif font-semibold">
+              C
+            </span>
+            {currentModule && (
+              <span className="hidden sm:block truncate text-sm font-medium text-ink-700 max-w-[10rem] md:max-w-[18rem]">
+                {loc(currentModule.title)}
+              </span>
+            )}
+          </Link>
+
+          {moduleId && (
+            <nav className="flex min-w-0 gap-1 ml-auto" aria-label="Hauptnavigation">
+              <NavLink to={`/learn/${moduleId}`} active={isActive('/learn')} compact>
+                {t('nav.learn')}
+              </NavLink>
+              <NavLink to={`/concepts/${moduleId}`} active={isActive('/concepts')} compact>
+                Begriffe
+              </NavLink>
+              <Link
+                to={`/print/${moduleId}`}
+                title="Druckversion / PDF-Export"
+                className="min-h-[40px] px-3 flex items-center rounded-md text-sm font-medium text-ink-500 hover:text-ink-800 hover:bg-ink-50"
+              >
+                Druck
+              </Link>
+            </nav>
+          )}
+
+          {moduleId && (
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setSearchOpen(v => !v)}
+                aria-label="Im Modul suchen"
+                aria-expanded={searchOpen}
+                className={`min-h-[40px] min-w-[40px] rounded-md border border-ink-200 px-2 text-sm font-medium ${searchQuery ? 'bg-burgundy-50 text-burgundy-700 border-burgundy-200' : 'text-ink-500 hover:bg-ink-50'}`}
+              >
+                Suche{searchQuery && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-burgundy-500" />}
+              </button>
+              {searchOpen && (
+                <div className="absolute right-0 top-full mt-1 z-30 w-72 max-w-[90vw] rounded-md border border-ink-100 bg-white p-2 shadow-lg">
+                  <input
+                    ref={searchInputRef}
+                    type="search"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Im Modul suchen..."
+                    className="w-full rounded-md bg-ink-50 border border-ink-100 px-3 py-2 text-sm text-ink-700 placeholder-ink-300 focus:outline-none focus:bg-white focus:border-burgundy-400"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => { setSearchQuery(''); setSearchOpen(false); }}
+                      className="mt-1 w-full min-h-[40px] rounded-md text-sm font-medium text-ink-500 hover:text-ink-800 hover:bg-ink-50"
+                    >
+                      Suche zurücksetzen
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {isStaticDemo ? (
+            <span className="shrink-0 rounded-md border border-verdigris-200 bg-verdigris-50 px-2 py-1 text-[11px] font-medium text-verdigris-700">
+              Beta
+            </span>
+          ) : user ? (
+            <button
+              onClick={handleLogout}
+              className="shrink-0 min-h-[40px] text-xs font-medium text-ink-500 hover:text-ink-800 border border-ink-200 hover:border-ink-300 rounded-md px-3 transition-colors"
+              title={user.displayName}
+            >
+              Abmelden
+            </button>
+          ) : (
+            <Link
+              to="/login"
+              className="shrink-0 min-h-[40px] flex items-center text-xs font-medium text-ink-500 hover:text-ink-800 border border-ink-200 hover:border-ink-300 rounded-md px-3 transition-colors"
+            >
+              Anmelden
+            </Link>
+          )}
+        </div>
+      </header>
+    );
   }
 
   return (
@@ -130,11 +232,11 @@ export function Header() {
   );
 }
 
-function NavLink({ to, active, children }: { to: string; active: boolean; children: ReactNode }) {
+function NavLink({ to, active, children, compact }: { to: string; active: boolean; children: ReactNode; compact?: boolean }) {
   return (
     <Link
       to={to}
-      className={`px-3 py-1.5 rounded-md font-medium transition-all ${
+      className={`${compact ? 'min-h-[40px] flex items-center px-3' : 'px-3 py-1.5'} rounded-md text-sm font-medium transition-all ${
         active
           ? 'bg-burgundy-600 text-white shadow-sm'
           : 'text-ink-500 hover:text-ink-800 hover:bg-ink-50'
