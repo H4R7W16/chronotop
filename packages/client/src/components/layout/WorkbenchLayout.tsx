@@ -1,5 +1,6 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { type CSSProperties, type ReactNode } from 'react';
 import { usePersistentPanelSize } from '../../hooks/usePersistentPanelSize.js';
+import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 
 export type WorkbenchPresetId = 'map' | 'analysis' | 'sources' | 'tasks';
 
@@ -136,19 +137,4 @@ export function WorkbenchLayout({
       </div>
     </div>
   );
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener?.('change', update);
-    return () => media.removeEventListener?.('change', update);
-  }, [query]);
-
-  return matches;
 }
