@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/ipad-learner-ui
   workflow_dispatch:
 
 permissions:
@@ -15,34 +16,81 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  STABLE_REF: main
+  BETA_REF: feat/ipad-learner-ui
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout stable
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.STABLE_REF }}
+          path: stable
+
+      - name: Checkout beta
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.BETA_REF }}
+          path: beta
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            stable/package-lock.json
+            beta/package-lock.json
 
-      - name: Install dependencies
+      - name: Install stable dependencies
+        working-directory: stable
         run: npm ci
 
-      - name: Run unit tests
+      - name: Test stable build
+        working-directory: stable
         run: npm test
 
-      - name: Prepare curated demo data
+      - name: Prepare stable demo data
+        working-directory: stable
         run: npm run pages:prepare
         env:
-          DB_PATH: ${{ github.workspace }}/packages/server/data/pages-demo.db
+          DB_PATH: ${{ github.workspace }}/stable/packages/server/data/pages-demo.db
 
-      - name: Build static demo
+      - name: Build stable Pages app
+        working-directory: stable
         run: npm run build:pages
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
+
+      - name: Install beta dependencies
+        working-directory: beta
+        run: npm ci
+
+      - name: Test beta build
+        working-directory: beta
+        run: npm test
+
+      - name: Prepare beta demo data
+        working-directory: beta
+        run: npm run pages:prepare
+        env:
+          DB_PATH: ${{ github.workspace }}/beta/packages/server/data/pages-demo.db
+
+      - name: Build beta Pages app
+        working-directory: beta
+        run: npm run build:pages
+        env:
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/beta/
+
+      - name: Assemble Pages artifact
+        shell: bash
+        run: |
+          mkdir -p site/beta
+          cp -a stable/packages/client/dist/. site/
+          cp -a beta/packages/client/dist/. site/beta/
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -50,7 +98,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: packages/client/dist
+          path: site
 
   deploy:
     environment:
