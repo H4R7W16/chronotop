@@ -116,10 +116,10 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
         className={`inline-flex min-h-[40px] items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors ${
           open || activeFilterCount > 0
             ? 'border-burgundy-200 bg-burgundy-50 text-burgundy-700'
-            : 'border-ink-200 bg-white text-ink-700 hover:bg-ink-50'
+            : 'border-burgundy-200 bg-burgundy-50 text-burgundy-700 hover:bg-burgundy-100'
         }`}
       >
-        <span>Modul</span>
+        <span>Filter</span>
         {activeFilterCount > 0 && (
           <span className="rounded-full bg-burgundy-600 px-2 py-0.5 text-[11px] font-semibold text-white">
             {activeFilterCount}
@@ -141,11 +141,11 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
                 ? 'left-3 right-3 top-14'
                 : 'left-3 right-3 top-16 sm:left-auto sm:right-4 sm:w-[25rem]'
             }`}
-            aria-label="Modul"
+            aria-label="Filter und Kartensteuerung"
           >
             <header className="flex items-start justify-between gap-3 border-b border-parchment-200 bg-parchment-50 px-4 py-3">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Modul</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Filter</p>
                 <h2 className="truncate font-serif text-lg font-semibold text-ink-900">
                   {currentModule ? localized(currentModule.title, lang) : 'Chronotop'}
                 </h2>
