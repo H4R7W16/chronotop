@@ -516,7 +516,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const isExplicitFocusRequest = mapFocusRequest !== handledFocusRequestRef.current;
     handledFocusRequestRef.current = mapFocusRequest;
     if (!isExplicitFocusRequest && selectionOrigin === 'map') return;
-    if (!isExplicitFocusRequest && mapFollowMode === 'paused') return;
+    const isTimelineSelection = selectionOrigin === 'timeline';
+    if (!isExplicitFocusRequest && !isTimelineSelection && mapFollowMode === 'paused') return;
     const event = events.find(e => e.id === selectedEventId);
     if (!event?.place) return;
 
@@ -529,7 +530,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const routeText = selectedMovements.map(m => `${m.name ?? ''} ${m.description ?? ''}`).join(' ');
 
     revealSelectedEvent(map, event, movementCoords, {
-      force: isExplicitFocusRequest || selectionOrigin === 'url',
+      force: isExplicitFocusRequest || selectionOrigin === 'url' || isTimelineSelection,
       routeMaxZoom: /deport|killesberg|nordbahnhof|riga|theresienstadt/i.test(routeText) ? 11 : 10,
       move: action => runProgrammaticCamera(map, action),
     });
