@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type PointerEvent, type ReactNode } from 'react';
 
-export type TimelineDockMode = 'mini' | 'medium' | 'full' | 'custom';
+export type TimelineDockMode = 'mini' | 'full' | 'custom';
 
 interface TimelineDockProps {
   storageKey: string;
@@ -9,7 +9,6 @@ interface TimelineDockProps {
 }
 
 const MINI_HEIGHT = 64;
-const MEDIUM_HEIGHT = 220;
 const FULL_HEIGHT = 420;
 
 function clamp(value: number, min: number, max: number): number {
@@ -43,7 +42,6 @@ export function TimelineDock({ storageKey, onHeightChange, children }: TimelineD
   function snap(nextMode: TimelineDockMode) {
     setMode(nextMode);
     if (nextMode === 'mini') setHeight(MINI_HEIGHT);
-    if (nextMode === 'medium') setHeight(Math.min(MEDIUM_HEIGHT, maxHeight));
     if (nextMode === 'full') setHeight(Math.min(FULL_HEIGHT, maxHeight));
   }
 
@@ -91,11 +89,11 @@ export function TimelineDock({ storageKey, onHeightChange, children }: TimelineD
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 lg:px-4">
       <section
-        className="pointer-events-auto mx-auto flex max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-t-md border border-parchment-200 bg-white/84 shadow-[0_-12px_32px_rgba(35,33,29,0.22)] backdrop-blur-xl transition-[height] duration-150 ease-out lg:rounded-md"
+        className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-t-md border border-white/55 bg-white/58 shadow-[0_-12px_32px_rgba(35,33,29,0.18)] backdrop-blur-xl transition-[height] duration-150 ease-out lg:rounded-md"
         style={{ height }}
         aria-label="Zeitleiste"
       >
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-parchment-200/80 bg-white/70 px-3">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/55 bg-white/48 px-3">
           <div
             role="button"
             tabIndex={0}
@@ -119,15 +117,8 @@ export function TimelineDock({ storageKey, onHeightChange, children }: TimelineD
             </button>
             <button
               type="button"
-              onClick={() => snap('medium')}
-              className={`min-h-[32px] rounded-md px-2.5 text-xs font-semibold ${mode === 'medium' || mode === 'custom' ? 'bg-burgundy-600 text-white' : 'text-ink-500 hover:bg-parchment-100'}`}
-            >
-              Mitte
-            </button>
-            <button
-              type="button"
               onClick={() => snap('full')}
-              className={`min-h-[32px] rounded-md px-2.5 text-xs font-semibold ${mode === 'full' ? 'bg-burgundy-600 text-white' : 'text-ink-500 hover:bg-parchment-100'}`}
+              className={`min-h-[32px] rounded-md px-2.5 text-xs font-semibold ${mode === 'full' || mode === 'custom' ? 'bg-burgundy-600 text-white' : 'text-ink-500 hover:bg-parchment-100'}`}
             >
               Groß
             </button>

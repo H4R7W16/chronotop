@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import {
@@ -85,7 +85,9 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
   const setAnalysisFocus = useChronotopStore(s => s.setAnalysisFocus);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(800);
+  const [width, setWidth] = useState(() => (
+    typeof window === 'undefined' ? 800 : Math.max(320, window.innerWidth - 32)
+  ));
   const [tooltipState, setTooltipState] = useState<{ event: ChronotopEvent; x: number; y: number } | null>(null);
   const [cursorYear, setCursorYear] = useState<number | null>(null);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
@@ -103,14 +105,24 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
     setRangeYears(next);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!containerRef.current) return;
+    const node = containerRef.current;
+    const measure = () => {
+      const nextWidth = Math.round(node.getBoundingClientRect().width);
+      if (nextWidth > 0) setWidth(Math.max(320, nextWidth));
+    };
+    measure();
     const ro = new ResizeObserver(entries => {
-      for (const entry of entries) setWidth(Math.max(320, entry.contentRect.width));
+      for (const entry of entries) setWidth(Math.max(320, Math.round(entry.contentRect.width)));
     });
-    ro.observe(containerRef.current);
-    return () => ro.disconnect();
-  }, []);
+    ro.observe(node);
+    const frame = window.requestAnimationFrame(measure);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      ro.disconnect();
+    };
+  }, [density]);
 
   useEffect(() => {
     setZoom(1);
@@ -402,7 +414,6 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
     : (isDragging ? 'cursor-grabbing' : 'cursor-grab');
   const timelineSummary = `${scale.mode === 'segmented' ? 'Phasenansicht' : `${formatYear(scale.minYear)} - ${formatYear(scale.maxYear)}`} · ${visibleEvents.length} von ${candidateEvents.length} Ereignissen`;
 
-  const selectedEvent = selectedEventId ? events.find(event => event.id === selectedEventId) : null;
   const activeFilterLabels = [
     searchQuery.trim() ? `Suche: ${clipText(searchQuery.trim(), 18)}` : null,
     timeFilter.from || timeFilter.to ? formatTimeFilter(timeFilter) : null,
@@ -420,13 +431,14 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
   if (density === 'mini') {
     const miniWidth = Math.max(width, 1);
     return (
-      <div ref={containerRef} className="h-full min-h-0 overflow-hidden bg-white/20 px-3 py-1">
-        <div className="flex h-full min-h-0 items-center gap-3">
+      <div ref={containerRef} className="h-full min-h-0 overflow-hidden bg-transparent px-3 py-1">
+        <div className="flex h-full min-h-0 items-center">
           <svg
             viewBox={`0 0 ${miniWidth} 18`}
             preserveAspectRatio="none"
-            className="h-4 min-w-0 flex-1"
-            aria-hidden="true"
+            className="h-4 w-full min-w-0 flex-1"
+            role="listbox"
+            aria-label="Kompakte Zeitleiste"
           >
             <rect x={0} y={8} width={miniWidth} height={2} rx={1} fill="var(--color-ink-300)" opacity={0.45} />
             {scale.segments.map(segment => (
@@ -447,17 +459,42 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
               const isSelected = item.event.id === selectedEventId;
               const isVisibleByTime = visibleEventIds.has(item.event.id);
               const option = dominantThemeOption(item.event, themeOptions, lang);
+              const itemWidth = item.isInstant ? 3.6 : Math.max(3.6, x2 - x);
+              const hitX = Math.max(0, (item.isInstant ? x - 6 : x - 4));
+              const hitWidth = Math.min(miniWidth - hitX, Math.max(12, itemWidth + 8));
+              const label = loc(item.event.title);
               return (
-                <rect
+                <g
                   key={item.event.id}
-                  x={item.isInstant ? x - 1.8 : x}
-                  y={isSelected ? 2 : 5}
-                  width={item.isInstant ? 3.6 : Math.max(3.6, x2 - x)}
-                  height={isSelected ? 14 : 8}
-                  rx={1.8}
-                  fill={isSelected ? 'var(--color-burgundy-600)' : option.color}
-                  opacity={isSelected ? 1 : isVisibleByTime ? 0.82 : 0.22}
-                />
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={`${label}, ${formatYear(item.startYear)}`}
+                  tabIndex={isVisibleByTime ? 0 : -1}
+                  style={{ cursor: isVisibleByTime ? 'pointer' : 'default' }}
+                  onClick={() => isVisibleByTime && selectEvent(item.event.id, { origin: 'timeline' })}
+                  onKeyDown={event => {
+                    if (!isVisibleByTime) return;
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      selectEvent(item.event.id, { origin: 'timeline' });
+                    }
+                  }}
+                  onMouseEnter={() => hoverEvent(isVisibleByTime ? item.event.id : null)}
+                  onMouseLeave={() => hoverEvent(null)}
+                  onFocus={() => hoverEvent(isVisibleByTime ? item.event.id : null)}
+                  onBlur={() => hoverEvent(null)}
+                >
+                  <rect x={hitX} y={0} width={hitWidth} height={18} fill="transparent" />
+                  <rect
+                    x={item.isInstant ? x - 1.8 : x}
+                    y={isSelected ? 2 : 5}
+                    width={itemWidth}
+                    height={isSelected ? 14 : 8}
+                    rx={1.8}
+                    fill={isSelected ? 'var(--color-burgundy-600)' : option.color}
+                    opacity={isSelected ? 1 : isVisibleByTime ? 0.82 : 0.22}
+                  />
+                </g>
               );
             })}
             {zoom > 1 && (
@@ -473,22 +510,14 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
               />
             )}
           </svg>
-          <span className="hidden max-w-[16rem] shrink-0 truncate text-[11px] font-medium text-ink-600 sm:block">
-            {selectedEvent ? loc(selectedEvent.title) : timelineSummary}
-          </span>
-          {activeFilterLabels.length > 0 && (
-            <span className="hidden shrink-0 truncate text-[11px] text-burgundy-700 md:block">
-              {activeFilterLabels.join(' · ')}
-            </span>
-          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full min-h-0 flex flex-col bg-white">
-      <div className="shrink-0 border-b border-parchment-200 bg-parchment-50 px-3 py-2 text-xs text-ink-500">
+    <div className="h-full min-h-0 flex flex-col bg-transparent">
+      <div className="shrink-0 border-b border-white/55 bg-white/48 px-3 py-2 text-xs text-ink-500 backdrop-blur-md">
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <span className="shrink-0 font-serif text-sm italic text-ink-700">Zeitleiste</span>
           {activeFilterLabels.map(label => (
@@ -544,11 +573,11 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
 
       </div>
 
-      <div className="shrink-0 border-b border-parchment-200 bg-parchment-50/80" style={{ height: MINIMAP_HEIGHT }}>
+      <div className="shrink-0 border-b border-white/50 bg-white/28" style={{ height: MINIMAP_HEIGHT }}>
         <svg
           width={width}
           height={MINIMAP_HEIGHT}
-          style={{ display: 'block', cursor: zoom > 1 ? 'pointer' : 'default' }}
+          style={{ display: 'block', width: '100%', cursor: zoom > 1 ? 'pointer' : 'default' }}
           onClick={handleMiniMapClick}
           onKeyDown={handleMiniMapKeyDown}
           role="slider"
@@ -611,7 +640,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
 
       <div
         ref={containerRef}
-        className={`relative min-h-0 flex-1 select-none overflow-y-auto overflow-x-hidden ${cursorClass}`}
+        className={`relative min-h-0 flex-1 select-none overflow-y-auto overflow-x-hidden bg-white/24 ${cursorClass}`}
         style={{ touchAction: filterMode === 'all' ? 'pan-y' : 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -620,8 +649,8 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
         onPointerLeave={handlePointerLeave}
         onWheel={handleWheel}
       >
-        <svg width={width} height={Math.max(totalHeight, 1)} style={{ display: 'block' }}>
-          <rect x={0} y={0} width={width} height={totalHeight} fill="#fffdf8" />
+        <svg width={width} height={Math.max(totalHeight, 1)} style={{ display: 'block', width: '100%' }}>
+          <rect x={0} y={0} width={width} height={totalHeight} fill="rgba(255,253,248,0.62)" />
 
           {scale.segments.map(segment => {
             const x = segment.ratioStart * innerWidth + panX;
@@ -670,7 +699,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
             );
           })}
 
-          <rect x={0} y={PHASE_HEIGHT} width={width} height={AXIS_HEIGHT} fill="var(--color-parchment-50)" />
+          <rect x={0} y={PHASE_HEIGHT} width={width} height={AXIS_HEIGHT} fill="rgba(255,253,248,0.72)" />
           <line x1={0} y1={TOP_PADDING - 2} x2={width} y2={TOP_PADDING - 2} stroke="var(--color-ink-300)" strokeWidth={1} />
 
           {ticks.map(tick => {
@@ -784,7 +813,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
         </svg>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-parchment-200 bg-parchment-50 px-3 py-1.5 text-[10.5px] text-ink-400">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/50 bg-white/42 px-3 py-1.5 text-[10.5px] text-ink-500 backdrop-blur-md">
         <LegendItem kind="point" label="Zeitpunkt" />
         <LegendItem kind="span" label="Zeitraum" />
         <LegendItem kind="uncertain" label="unsicher/rekonstruiert" />
@@ -981,56 +1010,6 @@ function TimelineCursor({ x, top, bottom, label, maxX }: { x: number; top: numbe
   );
 }
 
-function ModeButton({ active, onClick, children }: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      onClick={onClick}
-      className={`h-7 px-2.5 text-[11px] font-semibold transition-colors ${
-        active ? 'bg-burgundy-600 text-white' : 'bg-white text-ink-600 hover:bg-parchment-100'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function ThemeChip({ active, label, option, onClick }: {
-  active: boolean;
-  label: string;
-  option?: ThemeOption;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className="flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-semibold transition-colors"
-      style={{
-        borderColor: option ? option.color : active ? '#23211d' : '#e8ddc8',
-        background: active ? (option?.tint ?? '#23211d') : '#fff',
-        color: active ? (option?.color ?? '#fff') : '#4a4842',
-      }}
-    >
-      {option && (
-        <span
-          aria-hidden="true"
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ background: option.color }}
-        />
-      )}
-      <span>{label}</span>
-    </button>
-  );
-}
-
 function LegendItem({ kind, label }: { kind: 'point' | 'span' | 'uncertain'; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
@@ -1168,17 +1147,6 @@ function formatTimeFilter(filter: { from?: string; to?: string }): string {
 function formatYear(year: number): string {
   if (year < 0) return `${Math.round(-year)} v. Chr.`;
   return Math.round(year).toString();
-}
-
-function yearToIso(year: number): string {
-  const wholeYear = Math.floor(year);
-  const fraction = year - wholeYear;
-  const dayOfYear = Math.max(0, Math.min(364, Math.round(fraction * 365)));
-  const date = new Date(Date.UTC(wholeYear, 0, 1 + dayOfYear));
-  if (Number.isNaN(date.getTime())) return `${wholeYear.toString().padStart(4, '0')}-01-01`;
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  return `${date.getUTCFullYear().toString().padStart(4, '0')}-${month}-${day}`;
 }
 
 function clipText(text: string, maxChars: number): string {
