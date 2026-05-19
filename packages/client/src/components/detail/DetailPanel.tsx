@@ -28,9 +28,10 @@ const certaintyMeta: Record<string, { label: string; color: string }> = {
 
 interface DetailPanelProps {
   preferredTab?: DetailTab;
+  showInlineClose?: boolean;
 }
 
-export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
+export function DetailPanel({ preferredTab, showInlineClose = true }: DetailPanelProps = {}) {
   const { t } = useTranslation();
   const loc = useLocalized();
   const events = useChronotopStore(s => s.events);
@@ -146,12 +147,14 @@ export function DetailPanel({ preferredTab }: DetailPanelProps = {}) {
             >
               Link
             </button>
-            <button
-              onClick={() => selectEvent(null, { origin: 'detail' })}
-              className="min-h-[36px] rounded border border-parchment-300 bg-white px-2.5 text-xs font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
-            >
-              Schließen
-            </button>
+            {showInlineClose && (
+              <button
+                onClick={() => selectEvent(null, { origin: 'detail' })}
+                className="min-h-[36px] rounded border border-parchment-300 bg-white px-2.5 text-xs font-medium text-ink-500 hover:border-burgundy-200 hover:text-burgundy-700"
+              >
+                Schließen
+              </button>
+            )}
           </div>
         </div>
 

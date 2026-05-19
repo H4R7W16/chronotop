@@ -9,6 +9,7 @@ import { WorkbenchLayout } from './WorkbenchLayout.js';
 import { ModulePanel } from './ModulePanel.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
+import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import type { TimelineDockMode } from './TimelineDock.js';
 
 type ContextTab = 'details' | 'sources' | 'tasks';
@@ -30,6 +31,7 @@ export function LearningLayout() {
   const selectedEvent = selectedEventId ? events.find(e => e.id === selectedEventId) : null;
   const taskCount = tasks.length;
   const activeFilterCount = themeFilter.length + (timeFilter.from || timeFilter.to ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
+  const compactStage = useMediaQuery('(max-width: 1023px)');
 
   const [contextOpen, setContextOpen] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>('details');
@@ -40,7 +42,8 @@ export function LearningLayout() {
     if (!selectedEventId) return;
     setContextTab('details');
     setContextOpen(true);
-  }, [selectedEventId, selectionRevision]);
+    if (compactStage) setFilterOpen(false);
+  }, [compactStage, selectedEventId, selectionRevision]);
 
   const closeContext = () => {
     if (contextTab === 'tasks') {
@@ -71,13 +74,20 @@ export function LearningLayout() {
         />
       )}
       timelineContentHeight={timelineContentHeight}
-      inspectorVisible={showContext && !filterOpen}
+      inspectorVisible={showContext}
       inspectorLabel={inspectorLabel}
       onInspectorClose={closeContext}
       stageActions={(
         <button
           type="button"
-          onClick={() => setFilterOpen(current => !current)}
+          onClick={() => {
+            setFilterOpen(current => {
+              const next = !current;
+              if (next && compactStage) setContextOpen(false);
+              if (!next && compactStage && selectedEventId) setContextOpen(true);
+              return next;
+            });
+          }}
           aria-expanded={filterOpen}
           className={`pointer-events-auto inline-flex min-h-[42px] items-center gap-2 rounded-md border px-3 text-sm font-semibold shadow-xl backdrop-blur-md transition-colors ${
             filterOpen || activeFilterCount > 0
@@ -141,7 +151,7 @@ export function LearningLayout() {
           <div className="min-h-0 flex-1 overflow-hidden">
             {contextTab === 'tasks'
               ? <TaskPanel />
-              : <DetailPanel preferredTab={contextTab === 'sources' ? 'sources' : 'overview'} />
+              : <DetailPanel preferredTab={contextTab === 'sources' ? 'sources' : 'overview'} showInlineClose={false} />
             }
           </div>
         </div>
