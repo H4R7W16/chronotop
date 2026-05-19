@@ -38,6 +38,13 @@ interface MarkerEntry {
   popup: maplibregl.Popup;
 }
 
+interface RevealPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
 const SHAPE_SOURCE = 'event-shapes';
 const SHAPE_FILL_LAYER = 'event-shapes-fill';
 const SHAPE_OUTLINE_LAYER = 'event-shapes-outline';
@@ -59,8 +66,8 @@ const MOVEMENT_SCHEMATIC_LINE_LAYER = 'movement-line-schematic';
 const MOVEMENT_NODE_HALO_LAYER = 'movement-node-halo';
 const MOVEMENT_NODE_LAYER = 'movement-node';
 const MAP_HIT_TEST_PADDING = 10;
-const MAP_AUTO_REVEAL_PADDING = { top: 86, right: 48, bottom: 58, left: 56 };
-const MAP_FORCE_REVEAL_PADDING = { top: 92, right: 64, bottom: 70, left: 70 };
+const MAP_AUTO_REVEAL_PADDING: RevealPadding = { top: 86, right: 48, bottom: 58, left: 56 };
+const MAP_FORCE_REVEAL_PADDING: RevealPadding = { top: 92, right: 64, bottom: 70, left: 70 };
 const INTERACTIVE_LAYER_PRIORITY = [
   MOVEMENT_NODE_LAYER,
   SHAPE_POINT_LAYER,
@@ -514,12 +521,12 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const map = mapRef.current;
     if (!map || !selectedEventId || !mapLoadedRef.current) return;
     const isExplicitFocusRequest = mapFocusRequest !== handledFocusRequestRef.current;
-    handledFocusRequestRef.current = mapFocusRequest;
     if (!isExplicitFocusRequest && selectionOrigin === 'map') return;
-    const isTimelineSelection = selectionOrigin === 'timeline';
-    if (!isExplicitFocusRequest && !isTimelineSelection && mapFollowMode === 'paused') return;
+    const isSelectionFromPanel = selectionOrigin !== null && selectionOrigin !== 'map';
+    if (!isExplicitFocusRequest && !isSelectionFromPanel && mapFollowMode === 'paused') return;
     const event = events.find(e => e.id === selectedEventId);
     if (!event?.place) return;
+    handledFocusRequestRef.current = mapFocusRequest;
 
     const selectedMovements = movements
       .filter(m => m.eventId === selectedEventId)
@@ -530,13 +537,13 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const routeText = selectedMovements.map(m => `${m.name ?? ''} ${m.description ?? ''}`).join(' ');
 
     revealSelectedEvent(map, event, movementCoords, {
-      force: isExplicitFocusRequest || selectionOrigin === 'url' || isTimelineSelection,
+      force: isExplicitFocusRequest || isSelectionFromPanel,
       routeMaxZoom: /deport|killesberg|nordbahnhof|riga|theresienstadt/i.test(routeText) ? 11 : 10,
       move: action => runProgrammaticCamera(map, action),
     });
   // Selection should move the camera only by origin-aware rules; filtering or layer toggles should not yank the view away.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventId, selectionRevision, selectionOrigin, mapFollowMode, mapFocusRequest, events, movements]);
+  }, [selectedEventId, selectionRevision, selectionOrigin, mapFollowMode, mapFocusRequest, events, movements, styleVersion]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1326,6 +1333,10 @@ function revealSelectedEvent(
   options: RevealSelectedEventOptions,
 ) {
   if (!event.place) return;
+  const revealPadding = overlayAwareRevealPadding(
+    map,
+    options.force ? MAP_FORCE_REVEAL_PADDING : MAP_AUTO_REVEAL_PADDING,
+  );
   const coords = movementCoords.length > 1
     ? movementCoords
     : event.place.geometry
@@ -1333,7 +1344,7 @@ function revealSelectedEvent(
       : [[event.place.lng, event.place.lat] as [number, number]];
   if (coords.length === 0) return;
 
-  if (!options.force && isScreenBoundsVisible(map, coords, MAP_AUTO_REVEAL_PADDING)) return;
+  if (!options.force && isScreenBoundsVisible(map, coords, revealPadding)) return;
 
   if (coords.length === 1) {
     const targetZoom = options.force
@@ -1343,6 +1354,7 @@ function revealSelectedEvent(
       map.easeTo({
         center: coords[0],
         zoom: targetZoom,
+        padding: revealPadding,
         duration: options.force ? 640 : 480,
         essential: true,
       });
@@ -1355,13 +1367,14 @@ function revealSelectedEvent(
   const screenBox = screenBoundsForCoordinates(map, coords);
   const canPanAtCurrentZoom = !options.force
     && screenBox
-    && screenBoxFitsSafeSize(map, screenBox, MAP_AUTO_REVEAL_PADDING, 0.86);
+    && screenBoxFitsSafeSize(map, screenBox, revealPadding, 0.86);
 
   if (canPanAtCurrentZoom) {
     options.move(() => {
       map.easeTo({
         center: bounds.getCenter(),
         zoom: map.getZoom(),
+        padding: revealPadding,
         duration: 500,
         essential: true,
       });
@@ -1372,12 +1385,65 @@ function revealSelectedEvent(
   const isLine = movementCoords.length > 1 || event.place.geometry?.type.includes('LineString');
   options.move(() => {
     map.fitBounds(bounds, {
-      padding: MAP_FORCE_REVEAL_PADDING,
+      padding: revealPadding,
       duration: options.force ? 720 : 560,
       maxZoom: isLine ? options.routeMaxZoom : maxZoomForBounds(bounds),
       essential: true,
     });
   });
+}
+
+function overlayAwareRevealPadding(map: maplibregl.Map, base: RevealPadding): RevealPadding {
+  if (typeof document === 'undefined') return base;
+  const mapRect = map.getContainer().getBoundingClientRect();
+  const padding: RevealPadding = { ...base };
+  const dock = document.querySelector<HTMLElement>('[data-chronotop-timeline-dock]');
+  const sheet = document.querySelector<HTMLElement>('[data-chronotop-context-sheet]');
+
+  if (dock) {
+    const dockRect = dock.getBoundingClientRect();
+    if (rectsOverlap(mapRect, dockRect)) {
+      padding.bottom = Math.max(padding.bottom, Math.ceil(mapRect.bottom - Math.max(mapRect.top, dockRect.top) + 18));
+    }
+  }
+
+  if (sheet) {
+    const sheetRect = sheet.getBoundingClientRect();
+    if (rectsOverlap(mapRect, sheetRect)) {
+      if (sheetRect.left > mapRect.left + mapRect.width * 0.48) {
+        padding.right = Math.max(padding.right, Math.ceil(mapRect.right - Math.max(mapRect.left, sheetRect.left) + 22));
+      } else {
+        padding.bottom = Math.max(padding.bottom, Math.ceil(mapRect.bottom - Math.max(mapRect.top, sheetRect.top) + 22));
+      }
+    }
+  }
+
+  return clampRevealPadding(mapRect, padding);
+}
+
+function rectsOverlap(a: DOMRect, b: DOMRect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
+
+function clampRevealPadding(rect: DOMRect, padding: RevealPadding): RevealPadding {
+  const next = { ...padding };
+  const maxHorizontal = Math.max(0, rect.width - 96);
+  const horizontal = next.left + next.right;
+  if (horizontal > maxHorizontal && horizontal > 0) {
+    const scale = maxHorizontal / horizontal;
+    next.left = Math.floor(next.left * scale);
+    next.right = Math.floor(next.right * scale);
+  }
+
+  const maxVertical = Math.max(0, rect.height - 96);
+  const vertical = next.top + next.bottom;
+  if (vertical > maxVertical && vertical > 0) {
+    const scale = maxVertical / vertical;
+    next.top = Math.floor(next.top * scale);
+    next.bottom = Math.floor(next.bottom * scale);
+  }
+
+  return next;
 }
 
 function boundsFromCoordinates(coords: [number, number][]): maplibregl.LngLatBounds | null {

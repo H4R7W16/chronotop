@@ -517,7 +517,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-transparent">
-      <div className="shrink-0 border-b border-white/55 bg-white/48 px-3 py-2 text-xs text-ink-500 backdrop-blur-md">
+      <div className="shrink-0 border-b border-white/40 bg-white/16 px-3 py-2 text-xs text-ink-500 backdrop-blur-[2px]">
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <span className="shrink-0 font-serif text-sm italic text-ink-700">Zeitleiste</span>
           {activeFilterLabels.map(label => (
@@ -573,7 +573,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
 
       </div>
 
-      <div className="shrink-0 border-b border-white/50 bg-white/28" style={{ height: MINIMAP_HEIGHT }}>
+      <div className="shrink-0 border-b border-white/35 bg-white/10" style={{ height: MINIMAP_HEIGHT }}>
         <svg
           width={width}
           height={MINIMAP_HEIGHT}
@@ -640,7 +640,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
 
       <div
         ref={containerRef}
-        className={`relative min-h-0 flex-1 select-none overflow-y-auto overflow-x-hidden bg-white/24 ${cursorClass}`}
+        className={`relative min-h-0 flex-1 select-none overflow-y-auto overflow-x-hidden bg-white/8 ${cursorClass}`}
         style={{ touchAction: filterMode === 'all' ? 'pan-y' : 'none' }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -650,7 +650,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
         onWheel={handleWheel}
       >
         <svg width={width} height={Math.max(totalHeight, 1)} style={{ display: 'block', width: '100%' }}>
-          <rect x={0} y={0} width={width} height={totalHeight} fill="rgba(255,253,248,0.62)" />
+          <rect x={0} y={0} width={width} height={totalHeight} fill="rgba(255,253,248,0.18)" />
 
           {scale.segments.map(segment => {
             const x = segment.ratioStart * innerWidth + panX;
@@ -813,7 +813,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
         </svg>
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/50 bg-white/42 px-3 py-1.5 text-[10.5px] text-ink-500 backdrop-blur-md">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-t border-white/35 bg-white/16 px-3 py-1.5 text-[10.5px] text-ink-500 backdrop-blur-[2px]">
         <LegendItem kind="point" label="Zeitpunkt" />
         <LegendItem kind="span" label="Zeitraum" />
         <LegendItem kind="uncertain" label="unsicher/rekonstruiert" />

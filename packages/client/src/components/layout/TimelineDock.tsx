@@ -89,11 +89,12 @@ export function TimelineDock({ storageKey, onHeightChange, children }: TimelineD
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2 pb-2 lg:px-4">
       <section
-        className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-t-md border border-white/55 bg-white/58 shadow-[0_-12px_32px_rgba(35,33,29,0.18)] backdrop-blur-xl transition-[height] duration-150 ease-out lg:rounded-md"
+        data-chronotop-timeline-dock
+        className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-t-md border border-white/45 bg-white/22 shadow-[0_-10px_28px_rgba(35,33,29,0.14)] backdrop-blur-[2px] transition-[height] duration-150 ease-out lg:rounded-md"
         style={{ height }}
         aria-label="Zeitleiste"
       >
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/55 bg-white/48 px-3">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/45 bg-white/18 px-3">
           <div
             role="button"
             tabIndex={0}

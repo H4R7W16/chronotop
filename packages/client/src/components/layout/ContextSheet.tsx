@@ -10,6 +10,7 @@ interface ContextSheetProps {
 export function ContextSheet({ title, timelineHeight, onClose, children }: ContextSheetProps) {
   return (
     <aside
+      data-chronotop-context-sheet
       className="absolute left-3 right-3 z-30 flex max-h-[min(54vh,34rem)] flex-col overflow-hidden rounded-md border border-parchment-200 bg-white/94 shadow-2xl backdrop-blur-xl lg:left-auto lg:right-4 lg:top-4 lg:w-[29rem] lg:max-h-none"
       style={{
         bottom: `calc(${timelineHeight}px + 0.75rem)`,
