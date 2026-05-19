@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { localized, type Place } from '@chronotop/shared';
-import { MAP_STYLES, buildHistoricStyle, DEFAULT_STYLE_ID, type MapStyleOption } from '../../lib/mapStyle.js';
 import { eventMatchesSearch, dateToYear, isEventInTimeRange, isPlaceValidInRange } from '../../lib/timelineUtils.js';
 import {
   buildThemeOptions,
@@ -44,8 +43,6 @@ export function ModulePanel({ compact = false, embedded = false, onDone }: Modul
   const setTimeFilter = useChronotopStore(s => s.setTimeFilter);
   const themeFilter = useChronotopStore(s => s.themeFilter);
   const setThemeFilter = useChronotopStore(s => s.setThemeFilter);
-  const mapStyleId = useChronotopStore(s => s.mapStyleId);
-  const setMapStyleId = useChronotopStore(s => s.setMapStyleId);
   const mapLayerVisibility = useChronotopStore(s => s.mapLayerVisibility);
   const setMapLayerVisibility = useChronotopStore(s => s.setMapLayerVisibility);
 
@@ -54,11 +51,6 @@ export function ModulePanel({ compact = false, embedded = false, onDone }: Modul
     [concepts, events, lang, movements, places],
   );
   const eventById = useMemo(() => new Map(events.map(event => [event.id, event])), [events]);
-  const historicStyle = currentModule?.basemapUrl
-    ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Historische Karte')
-    : null;
-  const availableStyles: MapStyleOption[] = historicStyle ? [...MAP_STYLES, historicStyle] : MAP_STYLES;
-  const effectiveMapStyleId = availableStyles.some(style => style.id === mapStyleId) ? mapStyleId : DEFAULT_STYLE_ID;
   const activeThemeCount = themeFilter.length;
   const activeTimeCount = timeFilter.from || timeFilter.to ? 1 : 0;
   const activeSearchCount = searchQuery.trim() ? 1 : 0;
@@ -226,28 +218,8 @@ export function ModulePanel({ compact = false, embedded = false, onDone }: Modul
         </section>
 
         <section className="mt-5 space-y-2">
-          <PanelLabel>Karte</PanelLabel>
-          <div className="grid grid-cols-1 gap-1.5">
-            {availableStyles.map(style => (
-              <button
-                key={style.id}
-                type="button"
-                onClick={() => setMapStyleId(style.id)}
-                aria-pressed={effectiveMapStyleId === style.id}
-                className={`min-h-[44px] rounded-md border px-3 text-left text-sm font-medium transition-colors ${
-                  effectiveMapStyleId === style.id
-                    ? 'border-ink-800 bg-ink-800 text-white'
-                    : 'border-white/50 bg-white/46 text-ink-700 backdrop-blur-[2px] hover:bg-white/70'
-                }`}
-              >
-                <span className="block">{style.label}</span>
-                <span className={`block text-[11px] font-normal ${effectiveMapStyleId === style.id ? 'text-white/75' : 'text-ink-500'}`}>
-                  {style.description}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className="mt-3 space-y-1">
+          <PanelLabel>Layer</PanelLabel>
+          <div className="space-y-1 rounded-md border border-white/45 bg-white/30 p-1.5 backdrop-blur-[2px]">
             <LayerToggle
               label="Punktmarker"
               count={visibleEvents.filter(event => event.place && !event.place.geometry).length}

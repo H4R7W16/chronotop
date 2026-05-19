@@ -79,15 +79,27 @@ export function LearningLayout() {
           type="button"
           onClick={() => setFilterOpen(current => !current)}
           aria-expanded={filterOpen}
-          className={`pointer-events-auto min-h-[40px] rounded-md border px-3 text-sm font-semibold shadow-lg backdrop-blur-md transition-colors ${
+          className={`pointer-events-auto inline-flex min-h-[42px] items-center gap-2 rounded-md border px-3 text-sm font-semibold shadow-xl backdrop-blur-md transition-colors ${
             filterOpen || activeFilterCount > 0
               ? 'border-burgundy-200 bg-burgundy-600 text-white'
-              : 'border-white/50 bg-white/56 text-ink-700 hover:bg-white/76'
+              : 'border-white/60 bg-white/82 text-ink-700 hover:bg-white'
           }`}
         >
-          Filter
+          <span
+            className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${
+              filterOpen || activeFilterCount > 0
+                ? 'border-white/35 bg-white/14'
+                : 'border-ink-200 bg-white/56'
+            }`}
+            aria-hidden="true"
+          >
+            <span className="block h-2.5 w-3.5 border-y-2 border-current" />
+          </span>
+          <span>Filter</span>
           {activeFilterCount > 0 && (
-            <span className="ml-2 rounded-full bg-white/22 px-2 py-0.5 text-[11px] text-white">
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+              filterOpen ? 'bg-white/22 text-white' : 'bg-burgundy-600 text-white'
+            }`}>
               {activeFilterCount}
             </span>
           )}

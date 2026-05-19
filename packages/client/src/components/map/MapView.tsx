@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import {
   MAP_STYLES, DEFAULT_STYLE_ID, DEFAULT_CENTER, DEFAULT_ZOOM,
@@ -7,7 +7,6 @@ import {
 } from '../../lib/mapStyle.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { isEventInTimeRange, sortEventsByDate, eventMatchesSearch, isPlaceValidInRange } from '../../lib/timelineUtils.js';
-import { MapOverlay } from './MapOverlay.js';
 import { eventMatchesAnalysisFocus, movementMatchesAnalysisFocus } from '../../lib/analysisFocus.js';
 import {
   buildThemeOptions,
@@ -44,11 +43,6 @@ interface RevealPadding {
   right: number;
   bottom: number;
   left: number;
-}
-
-interface MapScaleState {
-  label: string;
-  width: number;
 }
 
 const SHAPE_SOURCE = 'event-shapes';
@@ -102,6 +96,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const hasFittedRef = useRef(false);
   const handledFocusRequestRef = useRef(0);
   const handledAnalysisFocusRequestRef = useRef(0);
+  const styleControlRef = useRef<MapStyleSwitcherControl | null>(null);
+  const fullscreenControlRef = useRef<MapFullscreenToggleControl | null>(null);
 
   const events = useChronotopStore(s => s.events);
   const places = useChronotopStore(s => s.places);
@@ -126,11 +122,10 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const mapStyleId = useChronotopStore(s => s.mapStyleId);
   const setMapStyleId = useChronotopStore(s => s.setMapStyleId);
   const mapLayerVisibility = useChronotopStore(s => s.mapLayerVisibility);
+  const fullscreen = useChronotopStore(s => s.fullscreen);
+  const setFullscreen = useChronotopStore(s => s.setFullscreen);
 
   const [styleVersion, setStyleVersion] = useState(0);
-  const [mapBearing, setMapBearing] = useState(0);
-  const [scaleState, setScaleState] = useState<MapScaleState>({ label: '500 km', width: 84 });
-  const [locationState, setLocationState] = useState<'idle' | 'locating' | 'error'>('idle');
   const showMarkers = mapLayerVisibility.markers;
   const showShapes = mapLayerVisibility.shapes;
   const showMovements = mapLayerVisibility.movements;
@@ -193,22 +188,30 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
       attributionControl: { compact: true },
     });
 
+    const styleControl = new MapStyleSwitcherControl(availableMapStyles, effectiveMapStyleId, setMapStyleId);
+    styleControlRef.current = styleControl;
+    map.addControl(styleControl, 'top-left');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
+    map.addControl(new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+    }), 'top-left');
+    const fullscreenControl = new MapFullscreenToggleControl(fullscreen, setFullscreen);
+    fullscreenControlRef.current = fullscreenControl;
+    map.addControl(fullscreenControl, 'top-left');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'top-left');
+    markMapToolsContainer(map);
+
     (window as any).__chronotopMap = map;
     map.on('load', () => {
       mapLoadedRef.current = true;
       installCustomLayers(map, selectEvent);
       setStyleVersion(v => v + 1);
-      updateMapChromeState(map, setMapBearing, setScaleState);
     });
     map.on('style.load', () => {
       installCustomLayers(map, selectEvent);
       setStyleVersion(v => v + 1);
     });
-    const updateChrome = () => updateMapChromeState(map, setMapBearing, setScaleState);
-    map.on('move', updateChrome);
-    map.on('zoom', updateChrome);
-    map.on('rotate', updateChrome);
-    map.on('resize', updateChrome);
 
     mapRef.current = map;
     const ro = new ResizeObserver(() => mapRef.current?.resize());
@@ -219,18 +222,24 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         window.clearTimeout(programmaticCameraTimerRef.current);
         programmaticCameraTimerRef.current = null;
       }
-      map.off('move', updateChrome);
-      map.off('zoom', updateChrome);
-      map.off('rotate', updateChrome);
-      map.off('resize', updateChrome);
       ro.disconnect();
       map.remove();
       mapRef.current = null;
       mapLoadedRef.current = false;
       hasFittedRef.current = false;
+      styleControlRef.current = null;
+      fullscreenControlRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    styleControlRef.current?.update(availableMapStyles, effectiveMapStyleId);
+  }, [availableMapStyles, effectiveMapStyleId]);
+
+  useEffect(() => {
+    fullscreenControlRef.current?.update(fullscreen);
+  }, [fullscreen]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -238,49 +247,6 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const opt = availableMapStyles.find(s => s.id === effectiveMapStyleId);
     if (opt) map.setStyle(opt.spec);
   }, [availableMapStyles, effectiveMapStyleId]);
-
-  function zoomMap(delta: number) {
-    const map = mapRef.current;
-    if (!map) return;
-    runProgrammaticCamera(map, () => {
-      if (delta > 0) map.zoomIn({ duration: 260, essential: true });
-      else map.zoomOut({ duration: 260, essential: true });
-    });
-  }
-
-  function resetNorth() {
-    const map = mapRef.current;
-    if (!map) return;
-    runProgrammaticCamera(map, () => {
-      map.easeTo({ bearing: 0, pitch: 0, duration: 360, essential: true });
-    });
-  }
-
-  function locateUser() {
-    const map = mapRef.current;
-    if (!map || !navigator.geolocation) {
-      setLocationState('error');
-      return;
-    }
-    setLocationState('locating');
-    navigator.geolocation.getCurrentPosition(
-      position => {
-        setLocationState('idle');
-        runProgrammaticCamera(map, () => {
-          map.easeTo({
-            center: [position.coords.longitude, position.coords.latitude],
-            zoom: Math.max(map.getZoom(), 14),
-            bearing: 0,
-            pitch: 0,
-            duration: 700,
-            essential: true,
-          });
-        });
-      },
-      () => setLocationState('error'),
-      { enableHighAccuracy: true, timeout: 9000, maximumAge: 60000 },
-    );
-  }
 
   useEffect(() => {
     const map = mapRef.current;
@@ -727,20 +693,8 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   }, [drawPoints]);
 
   return (
-    <div className="relative w-full h-full">
+    <div className="chronotop-map-stage relative h-full w-full">
       <div ref={containerRef} className="w-full h-full" />
-      <MapTools
-        styles={availableMapStyles}
-        activeStyleId={effectiveMapStyleId}
-        onStyleChange={setMapStyleId}
-        onZoomIn={() => zoomMap(1)}
-        onZoomOut={() => zoomMap(-1)}
-        onResetNorth={resetNorth}
-        onLocate={locateUser}
-        bearing={mapBearing}
-        scale={scaleState}
-        locationState={locationState}
-      />
       {selectedEventId && mapFollowMode === 'paused' && (
         <button
           type="button"
@@ -751,7 +705,6 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           Zur Auswahl
         </button>
       )}
-      <MapOverlay />
     </div>
   );
 
@@ -1399,160 +1352,158 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   }
 }
 
-interface MapToolsProps {
-  styles: MapStyleOption[];
-  activeStyleId: MapStyleOption['id'];
-  onStyleChange: (id: MapStyleOption['id']) => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onResetNorth: () => void;
-  onLocate: () => void;
-  bearing: number;
-  scale: MapScaleState;
-  locationState: 'idle' | 'locating' | 'error';
-}
+class MapStyleSwitcherControl implements maplibregl.IControl {
+  private container: HTMLDivElement | null = null;
+  private select: HTMLSelectElement | null = null;
 
-function MapTools({
-  styles,
-  activeStyleId,
-  onStyleChange,
-  onZoomIn,
-  onZoomOut,
-  onResetNorth,
-  onLocate,
-  bearing,
-  scale,
-  locationState,
-}: MapToolsProps) {
-  return (
-    <div
-      data-chronotop-map-tools
-      className="pointer-events-none absolute left-3 top-3 z-[60] flex max-w-[min(18rem,calc(100vw-1.5rem))] flex-col gap-2"
-      aria-label="Kartenwerkzeuge"
-    >
-      <div className="pointer-events-auto overflow-hidden rounded-md border border-white/55 bg-white/72 shadow-xl backdrop-blur-md">
-        <label className="block border-b border-white/55 px-2.5 py-1.5">
-          <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink-500">Darstellung</span>
-          <select
-            value={activeStyleId}
-            onChange={event => onStyleChange(event.target.value as MapStyleOption['id'])}
-            className="mt-1 w-full bg-transparent text-sm font-semibold text-ink-800 outline-none"
-            aria-label="Kartendarstellung auswählen"
-          >
-            {styles.map(style => (
-              <option key={style.id} value={style.id}>
-                {style.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="grid grid-cols-4 divide-x divide-white/55">
-          <MapToolButton label="Vergrößern" onClick={onZoomIn}>+</MapToolButton>
-          <MapToolButton label="Verkleinern" onClick={onZoomOut}>−</MapToolButton>
-          <MapToolButton label="Karte nach Norden ausrichten" onClick={onResetNorth}>
-            <span
-              className="inline-block font-serif text-sm font-bold"
-              style={{ transform: `rotate(${-bearing}deg)` }}
-              aria-hidden="true"
-            >
-              N
-            </span>
-          </MapToolButton>
-          <MapToolButton
-            label={locationState === 'locating' ? 'Standort wird gesucht' : 'Eigenen Standort anzeigen'}
-            onClick={onLocate}
-          >
-            {locationState === 'locating' ? '...' : 'Ort'}
-          </MapToolButton>
-        </div>
-      </div>
+  constructor(
+    private styles: MapStyleOption[],
+    private activeStyleId: MapStyleOption['id'],
+    private readonly onStyleChange: (id: MapStyleOption['id']) => void,
+  ) {}
 
-      <div className="pointer-events-auto w-fit rounded-md border border-white/55 bg-white/68 px-2.5 py-1.5 text-ink-700 shadow-lg backdrop-blur-md">
-        <div className="h-1 border-x border-t border-ink-700" style={{ width: scale.width }} aria-hidden="true" />
-        <div className="mt-1 text-[11px] font-semibold leading-none">{scale.label}</div>
-      </div>
+  onAdd(map: maplibregl.Map): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group chronotop-style-control';
+    container.setAttribute('data-chronotop-style-control', '');
 
-      {locationState === 'error' && (
-        <div className="pointer-events-auto max-w-[14rem] rounded-md border border-burgundy-200 bg-white/82 px-2.5 py-1.5 text-[11px] font-semibold text-burgundy-700 shadow-lg backdrop-blur-md">
-          Standort nicht verfügbar
-        </div>
-      )}
-    </div>
-  );
-}
+    const label = document.createElement('label');
+    label.className = 'chronotop-style-control__label-wrap';
 
-function MapToolButton({ label, onClick, children }: {
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      className="flex h-9 min-w-10 items-center justify-center bg-white/34 text-base font-bold text-ink-700 transition-colors hover:bg-white/70 focus:outline-none focus:ring-2 focus:ring-burgundy-300"
-    >
-      {children}
-    </button>
-  );
-}
+    const caption = document.createElement('span');
+    caption.className = 'chronotop-style-control__label';
+    caption.textContent = 'Darstellung';
 
-function updateMapChromeState(
-  map: maplibregl.Map,
-  setBearing: (value: number) => void,
-  setScale: (value: MapScaleState) => void,
-) {
-  setBearing(normalizeBearing(map.getBearing()));
-  setScale(calculateScaleState(map));
-}
+    const select = document.createElement('select');
+    select.className = 'chronotop-style-control__select';
+    select.setAttribute('aria-label', 'Kartendarstellung auswählen');
+    select.addEventListener('change', this.handleSelectChange);
 
-function calculateScaleState(map: maplibregl.Map): MapScaleState {
-  const canvas = map.getCanvas();
-  const samplePx = 100;
-  const y = Math.max(24, canvas.clientHeight - 72);
-  const left = map.unproject([0, y]);
-  const right = map.unproject([samplePx, y]);
-  const metersForSample = Math.max(1, haversineMeters(left.lat, left.lng, right.lat, right.lng));
-  const niceMeters = niceScaleDistance(metersForSample);
-  return {
-    label: formatScaleDistance(niceMeters),
-    width: Math.max(42, Math.min(128, Math.round((niceMeters / metersForSample) * samplePx))),
-  };
-}
+    label.append(caption, select);
+    container.append(label);
 
-function normalizeBearing(value: number): number {
-  const normalized = ((value % 360) + 360) % 360;
-  return normalized > 180 ? normalized - 360 : normalized;
-}
+    ['mousedown', 'dblclick', 'touchstart', 'touchmove', 'wheel'].forEach(eventName => {
+      container.addEventListener(eventName, stopMapControlPropagation);
+    });
 
-function niceScaleDistance(maxMeters: number): number {
-  const exponent = Math.floor(Math.log10(maxMeters));
-  const base = 10 ** exponent;
-  const fraction = maxMeters / base;
-  const niceFraction = fraction >= 5 ? 5 : fraction >= 2 ? 2 : 1;
-  return niceFraction * base;
-}
+    this.container = container;
+    this.select = select;
+    this.renderOptions();
+    markMapToolsContainer(map);
 
-function formatScaleDistance(meters: number): string {
-  if (meters >= 1000) {
-    const km = meters / 1000;
-    return `${km >= 10 ? Math.round(km) : Number(km.toFixed(1))} km`;
+    return container;
   }
-  return `${Math.round(meters)} m`;
+
+  onRemove(): void {
+    if (this.select) {
+      this.select.removeEventListener('change', this.handleSelectChange);
+    }
+    if (this.container) {
+      ['mousedown', 'dblclick', 'touchstart', 'touchmove', 'wheel'].forEach(eventName => {
+        this.container?.removeEventListener(eventName, stopMapControlPropagation);
+      });
+      this.container.parentNode?.removeChild(this.container);
+    }
+    this.container = null;
+    this.select = null;
+  }
+
+  update(styles: MapStyleOption[], activeStyleId: MapStyleOption['id']): void {
+    this.styles = styles;
+    this.activeStyleId = activeStyleId;
+    this.renderOptions();
+  }
+
+  private readonly handleSelectChange = () => {
+    if (!this.select) return;
+    this.onStyleChange(this.select.value as MapStyleOption['id']);
+  };
+
+  private renderOptions(): void {
+    if (!this.select) return;
+    this.select.replaceChildren();
+    for (const style of this.styles) {
+      const option = document.createElement('option');
+      option.value = style.id;
+      option.textContent = style.label;
+      this.select.append(option);
+    }
+    this.select.value = this.activeStyleId;
+  }
 }
 
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const earthRadius = 6371008.8;
-  const toRad = Math.PI / 180;
-  const phi1 = lat1 * toRad;
-  const phi2 = lat2 * toRad;
-  const dPhi = (lat2 - lat1) * toRad;
-  const dLambda = (lon2 - lon1) * toRad;
-  const a = Math.sin(dPhi / 2) ** 2
-    + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
-  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+class MapFullscreenToggleControl implements maplibregl.IControl {
+  private container: HTMLDivElement | null = null;
+  private button: HTMLButtonElement | null = null;
+
+  constructor(
+    private active: boolean,
+    private readonly onToggle: (active: boolean) => void,
+  ) {}
+
+  onAdd(map: maplibregl.Map): HTMLElement {
+    const container = document.createElement('div');
+    container.className = 'maplibregl-ctrl maplibregl-ctrl-group chronotop-fullscreen-control';
+    container.setAttribute('data-chronotop-fullscreen-control', '');
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chronotop-fullscreen-control__button';
+    button.append(document.createElement('span'));
+    button.addEventListener('click', this.handleClick);
+
+    container.append(button);
+    ['mousedown', 'dblclick', 'touchstart', 'touchmove', 'wheel'].forEach(eventName => {
+      container.addEventListener(eventName, stopMapControlPropagation);
+    });
+
+    this.container = container;
+    this.button = button;
+    this.renderButton();
+    markMapToolsContainer(map);
+
+    return container;
+  }
+
+  onRemove(): void {
+    this.button?.removeEventListener('click', this.handleClick);
+    if (this.container) {
+      ['mousedown', 'dblclick', 'touchstart', 'touchmove', 'wheel'].forEach(eventName => {
+        this.container?.removeEventListener(eventName, stopMapControlPropagation);
+      });
+      this.container.parentNode?.removeChild(this.container);
+    }
+    this.container = null;
+    this.button = null;
+  }
+
+  update(active: boolean): void {
+    this.active = active;
+    this.renderButton();
+  }
+
+  private readonly handleClick = () => {
+    this.onToggle(!this.active);
+  };
+
+  private renderButton(): void {
+    if (!this.button) return;
+    this.button.title = this.active ? 'Vollbild beenden' : 'Karte im Vollbild anzeigen';
+    this.button.setAttribute('aria-label', this.active ? 'Vollbild beenden' : 'Vollbild');
+    this.button.dataset.active = String(this.active);
+  }
+}
+
+function stopMapControlPropagation(event: Event) {
+  event.stopPropagation();
+}
+
+function markMapToolsContainer(map: maplibregl.Map) {
+  window.requestAnimationFrame(() => {
+    const controls = map.getContainer().querySelector<HTMLElement>('.maplibregl-ctrl-top-left');
+    controls?.setAttribute('data-chronotop-map-tools', '');
+    controls?.setAttribute('aria-label', 'Kartenwerkzeuge');
+  });
 }
 
 interface RevealSelectedEventOptions {
