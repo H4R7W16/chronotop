@@ -51,7 +51,7 @@ export function WorkbenchLayout({
       {sidePanel && (
         <aside
           data-chronotop-filter-sheet
-          className={`absolute left-3 right-3 z-30 flex max-h-[min(62vh,38rem)] origin-right flex-col overflow-hidden rounded-md border border-white/45 bg-white/38 shadow-2xl backdrop-blur-[3px] transition-[opacity,transform] duration-200 ease-out lg:left-auto lg:right-4 lg:top-4 lg:w-[25rem] lg:max-h-none ${
+          className={`absolute right-3 top-[13rem] z-30 flex w-[min(24rem,calc(100%-1.5rem))] origin-right flex-col overflow-hidden rounded-md border border-white/45 bg-white/38 shadow-2xl backdrop-blur-[3px] transition-[opacity,transform] duration-200 ease-out md:top-20 lg:right-4 lg:top-4 lg:w-[25rem] ${
             sidePanelVisible ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-[calc(100%+1.5rem)] opacity-0'
           }`}
           style={{

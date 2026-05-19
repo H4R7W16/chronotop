@@ -1,8 +1,9 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import maplibregl from 'maplibre-gl';
 import {
   MAP_STYLES, DEFAULT_STYLE_ID, DEFAULT_CENTER, DEFAULT_ZOOM,
   buildHistoricStyle,
+  type MapStyleOption,
 } from '../../lib/mapStyle.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { isEventInTimeRange, sortEventsByDate, eventMatchesSearch, isPlaceValidInRange } from '../../lib/timelineUtils.js';
@@ -43,6 +44,11 @@ interface RevealPadding {
   right: number;
   bottom: number;
   left: number;
+}
+
+interface MapScaleState {
+  label: string;
+  width: number;
 }
 
 const SHAPE_SOURCE = 'event-shapes';
@@ -118,9 +124,13 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const noteMapInteraction = useChronotopStore(s => s.noteMapInteraction);
   const requestMapFocus = useChronotopStore(s => s.requestMapFocus);
   const mapStyleId = useChronotopStore(s => s.mapStyleId);
+  const setMapStyleId = useChronotopStore(s => s.setMapStyleId);
   const mapLayerVisibility = useChronotopStore(s => s.mapLayerVisibility);
 
   const [styleVersion, setStyleVersion] = useState(0);
+  const [mapBearing, setMapBearing] = useState(0);
+  const [scaleState, setScaleState] = useState<MapScaleState>({ label: '500 km', width: 84 });
+  const [locationState, setLocationState] = useState<'idle' | 'locating' | 'error'>('idle');
   const showMarkers = mapLayerVisibility.markers;
   const showShapes = mapLayerVisibility.shapes;
   const showMovements = mapLayerVisibility.movements;
@@ -159,6 +169,17 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     if (!analysisFocus) return new Set<string>();
     return new Set(events.filter(event => eventMatchesAnalysisFocus(event, analysisFocus)).map(event => event.id));
   }, [analysisFocus, events]);
+  const historicStyleOption = useMemo(
+    () => currentModule?.basemapUrl
+      ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
+      : null,
+    [currentModule?.basemapLabel, currentModule?.basemapUrl],
+  );
+  const availableMapStyles = useMemo(
+    () => historicStyleOption ? [...MAP_STYLES, historicStyleOption] : MAP_STYLES,
+    [historicStyleOption],
+  );
+  const effectiveMapStyleId = availableMapStyles.some(style => style.id === mapStyleId) ? mapStyleId : DEFAULT_STYLE_ID;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -172,19 +193,22 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
       attributionControl: { compact: true },
     });
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
-
     (window as any).__chronotopMap = map;
     map.on('load', () => {
       mapLoadedRef.current = true;
       installCustomLayers(map, selectEvent);
       setStyleVersion(v => v + 1);
+      updateMapChromeState(map, setMapBearing, setScaleState);
     });
     map.on('style.load', () => {
       installCustomLayers(map, selectEvent);
       setStyleVersion(v => v + 1);
     });
+    const updateChrome = () => updateMapChromeState(map, setMapBearing, setScaleState);
+    map.on('move', updateChrome);
+    map.on('zoom', updateChrome);
+    map.on('rotate', updateChrome);
+    map.on('resize', updateChrome);
 
     mapRef.current = map;
     const ro = new ResizeObserver(() => mapRef.current?.resize());
@@ -195,6 +219,10 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
         window.clearTimeout(programmaticCameraTimerRef.current);
         programmaticCameraTimerRef.current = null;
       }
+      map.off('move', updateChrome);
+      map.off('zoom', updateChrome);
+      map.off('rotate', updateChrome);
+      map.off('resize', updateChrome);
       ro.disconnect();
       map.remove();
       mapRef.current = null;
@@ -207,13 +235,52 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoadedRef.current) return;
-    const historicOpt = currentModule?.basemapUrl
-      ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
-      : null;
-    const effectiveStyleId = (!historicOpt && mapStyleId === 'historic') ? DEFAULT_STYLE_ID : mapStyleId;
-    const opt = [...MAP_STYLES, ...(historicOpt ? [historicOpt] : [])].find(s => s.id === effectiveStyleId);
+    const opt = availableMapStyles.find(s => s.id === effectiveMapStyleId);
     if (opt) map.setStyle(opt.spec);
-  }, [mapStyleId, currentModule]);
+  }, [availableMapStyles, effectiveMapStyleId]);
+
+  function zoomMap(delta: number) {
+    const map = mapRef.current;
+    if (!map) return;
+    runProgrammaticCamera(map, () => {
+      if (delta > 0) map.zoomIn({ duration: 260, essential: true });
+      else map.zoomOut({ duration: 260, essential: true });
+    });
+  }
+
+  function resetNorth() {
+    const map = mapRef.current;
+    if (!map) return;
+    runProgrammaticCamera(map, () => {
+      map.easeTo({ bearing: 0, pitch: 0, duration: 360, essential: true });
+    });
+  }
+
+  function locateUser() {
+    const map = mapRef.current;
+    if (!map || !navigator.geolocation) {
+      setLocationState('error');
+      return;
+    }
+    setLocationState('locating');
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setLocationState('idle');
+        runProgrammaticCamera(map, () => {
+          map.easeTo({
+            center: [position.coords.longitude, position.coords.latitude],
+            zoom: Math.max(map.getZoom(), 14),
+            bearing: 0,
+            pitch: 0,
+            duration: 700,
+            essential: true,
+          });
+        });
+      },
+      () => setLocationState('error'),
+      { enableHighAccuracy: true, timeout: 9000, maximumAge: 60000 },
+    );
+  }
 
   useEffect(() => {
     const map = mapRef.current;
@@ -662,12 +729,24 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
+      <MapTools
+        styles={availableMapStyles}
+        activeStyleId={effectiveMapStyleId}
+        onStyleChange={setMapStyleId}
+        onZoomIn={() => zoomMap(1)}
+        onZoomOut={() => zoomMap(-1)}
+        onResetNorth={resetNorth}
+        onLocate={locateUser}
+        bearing={mapBearing}
+        scale={scaleState}
+        locationState={locationState}
+      />
       {selectedEventId && mapFollowMode === 'paused' && (
         <button
           type="button"
           onClick={requestMapFocus}
           className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md border border-burgundy-200 bg-white/96 px-3 py-1.5 text-xs font-semibold text-burgundy-700 shadow-md backdrop-blur hover:bg-burgundy-50 focus:outline-none focus:ring-2 focus:ring-burgundy-300"
-          title="AusgewÃ¤hltes Ereignis im Kartenausschnitt zeigen"
+          title="Ausgewähltes Ereignis im Kartenausschnitt zeigen"
         >
           Zur Auswahl
         </button>
@@ -1318,6 +1397,162 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
       });
     }
   }
+}
+
+interface MapToolsProps {
+  styles: MapStyleOption[];
+  activeStyleId: MapStyleOption['id'];
+  onStyleChange: (id: MapStyleOption['id']) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onResetNorth: () => void;
+  onLocate: () => void;
+  bearing: number;
+  scale: MapScaleState;
+  locationState: 'idle' | 'locating' | 'error';
+}
+
+function MapTools({
+  styles,
+  activeStyleId,
+  onStyleChange,
+  onZoomIn,
+  onZoomOut,
+  onResetNorth,
+  onLocate,
+  bearing,
+  scale,
+  locationState,
+}: MapToolsProps) {
+  return (
+    <div
+      data-chronotop-map-tools
+      className="pointer-events-none absolute left-3 top-3 z-[60] flex max-w-[min(18rem,calc(100vw-1.5rem))] flex-col gap-2"
+      aria-label="Kartenwerkzeuge"
+    >
+      <div className="pointer-events-auto overflow-hidden rounded-md border border-white/55 bg-white/72 shadow-xl backdrop-blur-md">
+        <label className="block border-b border-white/55 px-2.5 py-1.5">
+          <span className="block text-[10px] font-semibold uppercase tracking-wide text-ink-500">Darstellung</span>
+          <select
+            value={activeStyleId}
+            onChange={event => onStyleChange(event.target.value as MapStyleOption['id'])}
+            className="mt-1 w-full bg-transparent text-sm font-semibold text-ink-800 outline-none"
+            aria-label="Kartendarstellung auswählen"
+          >
+            {styles.map(style => (
+              <option key={style.id} value={style.id}>
+                {style.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-4 divide-x divide-white/55">
+          <MapToolButton label="Vergrößern" onClick={onZoomIn}>+</MapToolButton>
+          <MapToolButton label="Verkleinern" onClick={onZoomOut}>−</MapToolButton>
+          <MapToolButton label="Karte nach Norden ausrichten" onClick={onResetNorth}>
+            <span
+              className="inline-block font-serif text-sm font-bold"
+              style={{ transform: `rotate(${-bearing}deg)` }}
+              aria-hidden="true"
+            >
+              N
+            </span>
+          </MapToolButton>
+          <MapToolButton
+            label={locationState === 'locating' ? 'Standort wird gesucht' : 'Eigenen Standort anzeigen'}
+            onClick={onLocate}
+          >
+            {locationState === 'locating' ? '...' : 'Ort'}
+          </MapToolButton>
+        </div>
+      </div>
+
+      <div className="pointer-events-auto w-fit rounded-md border border-white/55 bg-white/68 px-2.5 py-1.5 text-ink-700 shadow-lg backdrop-blur-md">
+        <div className="h-1 border-x border-t border-ink-700" style={{ width: scale.width }} aria-hidden="true" />
+        <div className="mt-1 text-[11px] font-semibold leading-none">{scale.label}</div>
+      </div>
+
+      {locationState === 'error' && (
+        <div className="pointer-events-auto max-w-[14rem] rounded-md border border-burgundy-200 bg-white/82 px-2.5 py-1.5 text-[11px] font-semibold text-burgundy-700 shadow-lg backdrop-blur-md">
+          Standort nicht verfügbar
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MapToolButton({ label, onClick, children }: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex h-9 min-w-10 items-center justify-center bg-white/34 text-base font-bold text-ink-700 transition-colors hover:bg-white/70 focus:outline-none focus:ring-2 focus:ring-burgundy-300"
+    >
+      {children}
+    </button>
+  );
+}
+
+function updateMapChromeState(
+  map: maplibregl.Map,
+  setBearing: (value: number) => void,
+  setScale: (value: MapScaleState) => void,
+) {
+  setBearing(normalizeBearing(map.getBearing()));
+  setScale(calculateScaleState(map));
+}
+
+function calculateScaleState(map: maplibregl.Map): MapScaleState {
+  const canvas = map.getCanvas();
+  const samplePx = 100;
+  const y = Math.max(24, canvas.clientHeight - 72);
+  const left = map.unproject([0, y]);
+  const right = map.unproject([samplePx, y]);
+  const metersForSample = Math.max(1, haversineMeters(left.lat, left.lng, right.lat, right.lng));
+  const niceMeters = niceScaleDistance(metersForSample);
+  return {
+    label: formatScaleDistance(niceMeters),
+    width: Math.max(42, Math.min(128, Math.round((niceMeters / metersForSample) * samplePx))),
+  };
+}
+
+function normalizeBearing(value: number): number {
+  const normalized = ((value % 360) + 360) % 360;
+  return normalized > 180 ? normalized - 360 : normalized;
+}
+
+function niceScaleDistance(maxMeters: number): number {
+  const exponent = Math.floor(Math.log10(maxMeters));
+  const base = 10 ** exponent;
+  const fraction = maxMeters / base;
+  const niceFraction = fraction >= 5 ? 5 : fraction >= 2 ? 2 : 1;
+  return niceFraction * base;
+}
+
+function formatScaleDistance(meters: number): string {
+  if (meters >= 1000) {
+    const km = meters / 1000;
+    return `${km >= 10 ? Math.round(km) : Number(km.toFixed(1))} km`;
+  }
+  return `${Math.round(meters)} m`;
+}
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const earthRadius = 6371008.8;
+  const toRad = Math.PI / 180;
+  const phi1 = lat1 * toRad;
+  const phi2 = lat2 * toRad;
+  const dPhi = (lat2 - lat1) * toRad;
+  const dLambda = (lon2 - lon1) * toRad;
+  const a = Math.sin(dPhi / 2) ** 2
+    + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dLambda / 2) ** 2;
+  return 2 * earthRadius * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 interface RevealSelectedEventOptions {
