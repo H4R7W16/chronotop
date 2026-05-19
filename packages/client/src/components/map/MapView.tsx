@@ -1399,6 +1399,7 @@ function overlayAwareRevealPadding(map: maplibregl.Map, base: RevealPadding): Re
   const padding: RevealPadding = { ...base };
   const dock = document.querySelector<HTMLElement>('[data-chronotop-timeline-dock]');
   const sheet = document.querySelector<HTMLElement>('[data-chronotop-context-sheet]');
+  const filterSheet = document.querySelector<HTMLElement>('[data-chronotop-filter-sheet]');
 
   if (dock) {
     const dockRect = dock.getBoundingClientRect();
@@ -1415,6 +1416,13 @@ function overlayAwareRevealPadding(map: maplibregl.Map, base: RevealPadding): Re
       } else {
         padding.bottom = Math.max(padding.bottom, Math.ceil(mapRect.bottom - Math.max(mapRect.top, sheetRect.top) + 22));
       }
+    }
+  }
+
+  if (filterSheet) {
+    const filterRect = filterSheet.getBoundingClientRect();
+    if (rectsOverlap(mapRect, filterRect)) {
+      padding.right = Math.max(padding.right, Math.ceil(mapRect.right - Math.max(mapRect.left, filterRect.left) + 22));
     }
   }
 

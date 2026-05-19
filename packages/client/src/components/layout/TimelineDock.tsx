@@ -5,24 +5,31 @@ export type TimelineDockMode = 'mini' | 'full' | 'custom';
 interface TimelineDockProps {
   storageKey: string;
   onHeightChange?: (height: number) => void;
+  contentMaxHeight?: number;
   children: (mode: TimelineDockMode) => ReactNode;
 }
 
 const MINI_HEIGHT = 64;
 const FULL_HEIGHT = 420;
+const DOCK_CHROME_HEIGHT = 36;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-export function TimelineDock({ storageKey, onHeightChange, children }: TimelineDockProps) {
+export function TimelineDock({ storageKey, onHeightChange, contentMaxHeight, children }: TimelineDockProps) {
   const [mode, setMode] = useState<TimelineDockMode>('mini');
   const [height, setHeight] = useState(MINI_HEIGHT);
   const [viewportHeight, setViewportHeight] = useState(() => (
     typeof window === 'undefined' ? 900 : window.innerHeight
   ));
 
-  const maxHeight = useMemo(() => Math.min(Math.round(viewportHeight * 0.6), 460), [viewportHeight]);
+  const maxHeight = useMemo(() => {
+    const contentLimit = contentMaxHeight
+      ? Math.ceil(contentMaxHeight + DOCK_CHROME_HEIGHT + 14)
+      : FULL_HEIGHT;
+    return Math.max(MINI_HEIGHT, Math.min(Math.round(viewportHeight * 0.6), 460, contentLimit));
+  }, [contentMaxHeight, viewportHeight]);
 
   useEffect(() => {
     const onResize = () => setViewportHeight(window.innerHeight);
@@ -38,6 +45,10 @@ export function TimelineDock({ storageKey, onHeightChange, children }: TimelineD
   useEffect(() => {
     onHeightChange?.(height);
   }, [height, onHeightChange]);
+
+  useEffect(() => {
+    setHeight(current => Math.min(current, maxHeight));
+  }, [maxHeight]);
 
   function snap(nextMode: TimelineDockMode) {
     setMode(nextMode);

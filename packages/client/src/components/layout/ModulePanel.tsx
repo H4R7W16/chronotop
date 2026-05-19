@@ -23,19 +23,21 @@ const TIME_PRESETS: Array<{ label: string; from?: string; to?: string }> = [
 
 interface ModulePanelProps {
   compact?: boolean;
+  embedded?: boolean;
+  onDone?: () => void;
 }
 
-export function ModulePanel({ compact = false }: ModulePanelProps) {
+export function ModulePanel({ compact = false, embedded = false, onDone }: ModulePanelProps) {
   const { i18n } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
   const lang = i18n.language;
+  const open = embedded || localOpen;
 
   const currentModule = useChronotopStore(s => s.currentModule);
   const events = useChronotopStore(s => s.events);
   const places = useChronotopStore(s => s.places);
   const concepts = useChronotopStore(s => s.concepts);
   const movements = useChronotopStore(s => s.movements);
-  const tasks = useChronotopStore(s => s.tasks);
   const searchQuery = useChronotopStore(s => s.searchQuery);
   const setSearchQuery = useChronotopStore(s => s.setSearchQuery);
   const timeFilter = useChronotopStore(s => s.timeFilter);
@@ -73,7 +75,7 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') closePanel();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -107,11 +109,192 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
     setThemeFilter([]);
   }
 
+  function closePanel() {
+    if (embedded) {
+      onDone?.();
+      return;
+    }
+    setLocalOpen(false);
+  }
+
+  const panelContent = (
+    <>
+      <header className="flex items-start justify-between gap-3 border-b border-white/40 bg-white/24 px-4 py-3 backdrop-blur-[2px]">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">Filter</p>
+          <h2 className="truncate font-serif text-lg font-semibold text-ink-900">
+            {currentModule ? localized(currentModule.title, lang) : 'Chronotop'}
+          </h2>
+          <p className="mt-0.5 text-xs text-ink-500">
+            {visibleEvents.length} Ereignisse · {visiblePlaceCount} Orte · {visibleMovementCount} Achsen
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={closePanel}
+          className="min-h-[36px] rounded-md border border-white/50 bg-white/46 px-3 text-sm font-semibold text-ink-600 backdrop-blur-[2px] hover:bg-white/70"
+        >
+          Einklappen
+        </button>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <section className="space-y-2">
+          <PanelLabel>Suche</PanelLabel>
+          <div className="relative">
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.target.value)}
+              placeholder="Im Modul suchen..."
+              className="w-full rounded-md border border-white/50 bg-white/54 px-3 py-2 text-sm text-ink-800 placeholder-ink-300 shadow-sm backdrop-blur-[2px] focus:border-burgundy-400 focus:bg-white/78 focus:outline-none"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-1.5 top-1/2 min-h-[32px] -translate-y-1/2 rounded px-2 text-xs font-semibold text-ink-400 hover:bg-white/70 hover:text-ink-700"
+                aria-label="Suche zurücksetzen"
+              >
+                x
+              </button>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-5 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <PanelLabel>Zeit</PanelLabel>
+            {(timeFilter.from || timeFilter.to) && (
+              <button
+                type="button"
+                onClick={() => setTimeFilter({})}
+                className="min-h-[32px] rounded px-2 text-xs font-semibold text-ink-600 hover:bg-white/40 hover:text-ink-800"
+              >
+                löschen
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {TIME_PRESETS.map(preset => {
+              const active = (timeFilter.from ?? '') === (preset.from ?? '') && (timeFilter.to ?? '') === (preset.to ?? '');
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => setTimeFilter({ from: preset.from, to: preset.to })}
+                  aria-pressed={active}
+                  className={`min-h-[40px] rounded-md border px-3 text-sm font-medium transition-colors ${
+                    active
+                      ? 'border-ink-800 bg-ink-800 text-white'
+                      : 'border-white/50 bg-white/46 text-ink-700 backdrop-blur-[2px] hover:bg-white/70'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+          {(timeFilter.from || timeFilter.to) && (
+            <p className="text-xs text-ink-500">Aktiv: {formatTimeFilter(timeFilter)}</p>
+          )}
+        </section>
+
+        <section className="mt-5 space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <PanelLabel>Themen</PanelLabel>
+            {themeFilter.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setThemeFilter([])}
+                className="min-h-[32px] rounded px-2 text-xs font-semibold text-ink-600 hover:bg-white/40 hover:text-ink-800"
+              >
+                alle
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {themeOptions.map(option => (
+              <ThemeButton
+                key={option.id}
+                option={option}
+                active={themeFilter.includes(option.id)}
+                onClick={() => toggleTheme(option.id)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-5 space-y-2">
+          <PanelLabel>Karte</PanelLabel>
+          <div className="grid grid-cols-1 gap-1.5">
+            {availableStyles.map(style => (
+              <button
+                key={style.id}
+                type="button"
+                onClick={() => setMapStyleId(style.id)}
+                aria-pressed={effectiveMapStyleId === style.id}
+                className={`min-h-[44px] rounded-md border px-3 text-left text-sm font-medium transition-colors ${
+                  effectiveMapStyleId === style.id
+                    ? 'border-ink-800 bg-ink-800 text-white'
+                    : 'border-white/50 bg-white/46 text-ink-700 backdrop-blur-[2px] hover:bg-white/70'
+                }`}
+              >
+                <span className="block">{style.label}</span>
+                <span className={`block text-[11px] font-normal ${effectiveMapStyleId === style.id ? 'text-white/75' : 'text-ink-500'}`}>
+                  {style.description}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 space-y-1">
+            <LayerToggle
+              label="Punktmarker"
+              count={visibleEvents.filter(event => event.place && !event.place.geometry).length}
+              checked={mapLayerVisibility.markers}
+              onChange={() => setMapLayerVisibility(current => ({ markers: !current.markers }))}
+            />
+            <LayerToggle
+              label="Geometrien"
+              count={visiblePlaceCount}
+              checked={mapLayerVisibility.shapes}
+              onChange={() => setMapLayerVisibility(current => ({ shapes: !current.shapes }))}
+            />
+            <LayerToggle
+              label="Historische Achsen"
+              count={visibleMovementCount}
+              checked={mapLayerVisibility.movements}
+              onChange={() => setMapLayerVisibility(current => ({ movements: !current.movements }))}
+            />
+          </div>
+        </section>
+
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="mt-5 min-h-[40px] w-full rounded-md border border-white/55 bg-white/42 px-3 text-sm font-semibold text-ink-700 backdrop-blur-[2px] hover:bg-white/68"
+          >
+            Filter zurücksetzen
+          </button>
+        )}
+      </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="flex h-full min-h-0 flex-col overflow-hidden bg-transparent">
+        {panelContent}
+      </div>
+    );
+  }
+
   return (
     <div className="relative shrink-0">
       <button
         type="button"
-        onClick={() => setOpen(v => !v)}
+        onClick={() => setLocalOpen(v => !v)}
         aria-expanded={open}
         className={`inline-flex min-h-[40px] items-center gap-2 rounded-md border px-3 text-sm font-semibold transition-colors ${
           open || activeFilterCount > 0
@@ -131,178 +314,19 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
         <>
           <button
             type="button"
-            aria-label="Modul-Panel schließen"
-            onClick={() => setOpen(false)}
+            aria-label="Filter schließen"
+            onClick={closePanel}
             className="fixed inset-0 z-40 bg-ink-900/18"
           />
           <aside
-            className={`fixed z-50 max-h-[calc(100vh-4.5rem)] overflow-hidden rounded-md border border-parchment-200 bg-white shadow-2xl ${
+            className={`fixed z-50 flex max-h-[calc(100vh-4.5rem)] flex-col overflow-hidden rounded-md border border-parchment-200 bg-white/80 shadow-2xl backdrop-blur-md ${
               compact
                 ? 'left-3 right-3 top-14'
                 : 'left-3 right-3 top-16 sm:left-auto sm:right-4 sm:w-[25rem]'
             }`}
             aria-label="Filter und Kartensteuerung"
           >
-            <header className="flex items-start justify-between gap-3 border-b border-parchment-200 bg-parchment-50 px-4 py-3">
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Filter</p>
-                <h2 className="truncate font-serif text-lg font-semibold text-ink-900">
-                  {currentModule ? localized(currentModule.title, lang) : 'Chronotop'}
-                </h2>
-                <p className="mt-0.5 text-xs text-ink-500">
-                  {visibleEvents.length} Ereignisse · {visiblePlaceCount} Orte · {visibleMovementCount} Achsen · {tasks.length} Aufgaben
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                className="min-h-[40px] rounded-md border border-parchment-300 bg-white px-3 text-sm font-semibold text-ink-600 hover:bg-parchment-50"
-              >
-                Fertig
-              </button>
-            </header>
-
-            <div className="max-h-[calc(100vh-10rem)] overflow-y-auto px-4 py-4">
-              <section className="space-y-2">
-                <PanelLabel>Suche</PanelLabel>
-                <div className="relative">
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={event => setSearchQuery(event.target.value)}
-                    placeholder="Im Modul suchen..."
-                    className="w-full rounded-md border border-ink-100 bg-ink-50 px-3 py-2 text-sm text-ink-800 placeholder-ink-300 focus:border-burgundy-400 focus:bg-white focus:outline-none"
-                  />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-1.5 top-1/2 min-h-[32px] -translate-y-1/2 rounded px-2 text-xs font-semibold text-ink-400 hover:bg-white hover:text-ink-700"
-                      aria-label="Suche zurücksetzen"
-                    >
-                      x
-                    </button>
-                  )}
-                </div>
-              </section>
-
-              <section className="mt-5 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <PanelLabel>Zeit</PanelLabel>
-                  {(timeFilter.from || timeFilter.to) && (
-                    <button
-                      type="button"
-                      onClick={() => setTimeFilter({})}
-                      className="min-h-[32px] rounded px-2 text-xs font-semibold text-ink-500 hover:bg-parchment-50 hover:text-ink-800"
-                    >
-                      löschen
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {TIME_PRESETS.map(preset => {
-                    const active = (timeFilter.from ?? '') === (preset.from ?? '') && (timeFilter.to ?? '') === (preset.to ?? '');
-                    return (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => setTimeFilter({ from: preset.from, to: preset.to })}
-                        aria-pressed={active}
-                        className={`min-h-[40px] rounded-md border px-3 text-sm font-medium transition-colors ${
-                          active
-                            ? 'border-ink-800 bg-ink-800 text-white'
-                            : 'border-parchment-300 bg-white text-ink-700 hover:bg-parchment-50'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    );
-                  })}
-                </div>
-                {(timeFilter.from || timeFilter.to) && (
-                  <p className="text-xs text-ink-400">Aktiv: {formatTimeFilter(timeFilter)}</p>
-                )}
-              </section>
-
-              <section className="mt-5 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <PanelLabel>Themen</PanelLabel>
-                  {themeFilter.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setThemeFilter([])}
-                      className="min-h-[32px] rounded px-2 text-xs font-semibold text-ink-500 hover:bg-parchment-50 hover:text-ink-800"
-                    >
-                      alle
-                    </button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {themeOptions.map(option => (
-                    <ThemeButton
-                      key={option.id}
-                      option={option}
-                      active={themeFilter.includes(option.id)}
-                      onClick={() => toggleTheme(option.id)}
-                    />
-                  ))}
-                </div>
-              </section>
-
-              <section className="mt-5 space-y-2">
-                <PanelLabel>Karte</PanelLabel>
-                <div className="grid grid-cols-1 gap-1.5">
-                  {availableStyles.map(style => (
-                    <button
-                      key={style.id}
-                      type="button"
-                      onClick={() => setMapStyleId(style.id)}
-                      aria-pressed={effectiveMapStyleId === style.id}
-                      className={`min-h-[44px] rounded-md border px-3 text-left text-sm font-medium transition-colors ${
-                        effectiveMapStyleId === style.id
-                          ? 'border-ink-800 bg-ink-800 text-white'
-                          : 'border-parchment-300 bg-white text-ink-700 hover:bg-parchment-50'
-                      }`}
-                    >
-                      <span className="block">{style.label}</span>
-                      <span className={`block text-[11px] font-normal ${effectiveMapStyleId === style.id ? 'text-white/75' : 'text-ink-400'}`}>
-                        {style.description}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-3 space-y-1">
-                  <LayerToggle
-                    label="Punktmarker"
-                    count={visibleEvents.filter(event => event.place && !event.place.geometry).length}
-                    checked={mapLayerVisibility.markers}
-                    onChange={() => setMapLayerVisibility(current => ({ markers: !current.markers }))}
-                  />
-                  <LayerToggle
-                    label="Geometrien"
-                    count={visiblePlaceCount}
-                    checked={mapLayerVisibility.shapes}
-                    onChange={() => setMapLayerVisibility(current => ({ shapes: !current.shapes }))}
-                  />
-                  <LayerToggle
-                    label="Historische Achsen"
-                    count={visibleMovementCount}
-                    checked={mapLayerVisibility.movements}
-                    onChange={() => setMapLayerVisibility(current => ({ movements: !current.movements }))}
-                  />
-                </div>
-              </section>
-
-              {activeFilterCount > 0 && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="mt-5 min-h-[40px] w-full rounded-md border border-parchment-300 bg-parchment-50 px-3 text-sm font-semibold text-ink-600 hover:bg-parchment-100"
-                >
-                  Filter zurücksetzen
-                </button>
-              )}
-            </div>
+            {panelContent}
           </aside>
         </>
       )}
@@ -312,7 +336,7 @@ export function ModulePanel({ compact = false }: ModulePanelProps) {
 
 function PanelLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+    <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">
       {children}
     </p>
   );
@@ -324,10 +348,10 @@ function ThemeButton({ option, active, onClick }: { option: ThemeOption; active:
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className="flex min-h-[40px] items-center gap-2 rounded-md border px-2.5 text-left text-sm font-medium transition-colors hover:bg-parchment-50"
+      className="flex min-h-[40px] items-center gap-2 rounded-md border px-2.5 text-left text-sm font-medium shadow-sm transition-colors hover:bg-white/70"
       style={{
-        borderColor: active ? option.color : '#e8ddc8',
-        background: active ? option.tint : '#fff',
+        borderColor: active ? option.color : 'rgba(255,255,255,0.5)',
+        background: active ? option.tint : 'rgba(255,255,255,0.46)',
         color: active ? option.color : '#4a4842',
       }}
     >
@@ -344,10 +368,10 @@ function LayerToggle({ label, count, checked, onChange }: {
   onChange: () => void;
 }) {
   return (
-    <label className="flex min-h-[40px] cursor-pointer items-center justify-between gap-3 rounded-md px-2 hover:bg-parchment-50">
+    <label className="flex min-h-[40px] cursor-pointer items-center justify-between gap-3 rounded-md px-2 hover:bg-white/40">
       <span className="min-w-0 text-sm font-medium text-ink-700">
         {label}
-        <span className="ml-1.5 text-xs font-normal text-ink-400">{count}</span>
+        <span className="ml-1.5 text-xs font-normal text-ink-500">{count}</span>
       </span>
       <input
         type="checkbox"

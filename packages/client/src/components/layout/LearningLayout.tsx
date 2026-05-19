@@ -6,6 +6,7 @@ import { TimelineView } from '../timeline/TimelineView.js';
 import { DetailPanel } from '../detail/DetailPanel.js';
 import { TaskPanel } from '../tasks/TaskPanel.js';
 import { WorkbenchLayout } from './WorkbenchLayout.js';
+import { ModulePanel } from './ModulePanel.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
 import type { TimelineDockMode } from './TimelineDock.js';
@@ -21,24 +22,25 @@ export function LearningLayout() {
   const selectEvent = useChronotopStore(s => s.selectEvent);
   const events = useChronotopStore(s => s.events);
   const tasks = useChronotopStore(s => s.tasks);
+  const searchQuery = useChronotopStore(s => s.searchQuery);
+  const timeFilter = useChronotopStore(s => s.timeFilter);
+  const themeFilter = useChronotopStore(s => s.themeFilter);
   const fullscreen = useChronotopStore(s => s.fullscreen);
   const moduleId = useChronotopStore(s => s.currentModuleId);
   const selectedEvent = selectedEventId ? events.find(e => e.id === selectedEventId) : null;
   const taskCount = tasks.length;
+  const activeFilterCount = themeFilter.length + (timeFilter.from || timeFilter.to ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
 
   const [contextOpen, setContextOpen] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>('details');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [timelineContentHeight, setTimelineContentHeight] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!selectedEventId) return;
     setContextTab('details');
     setContextOpen(true);
   }, [selectedEventId, selectionRevision]);
-
-  const openTasks = () => {
-    setContextTab('tasks');
-    setContextOpen(true);
-  };
 
   const closeContext = () => {
     if (contextTab === 'tasks') {
@@ -63,31 +65,37 @@ export function LearningLayout() {
       storageKey={`learn:${moduleId ?? 'module'}`}
       map={<MapView />}
       timeline={(mode: TimelineDockMode) => (
-        <TimelineView density={mode === 'mini' ? 'mini' : 'full'} />
+        <TimelineView
+          density={mode === 'mini' ? 'mini' : 'full'}
+          onContentHeightChange={setTimelineContentHeight}
+        />
       )}
-      inspectorVisible={showContext}
+      timelineContentHeight={timelineContentHeight}
+      inspectorVisible={showContext && !filterOpen}
       inspectorLabel={inspectorLabel}
       onInspectorClose={closeContext}
-      stageActions={taskCount > 0 ? (
+      stageActions={(
         <button
           type="button"
-          onClick={openTasks}
+          onClick={() => setFilterOpen(current => !current)}
+          aria-expanded={filterOpen}
           className={`pointer-events-auto min-h-[40px] rounded-md border px-3 text-sm font-semibold shadow-lg backdrop-blur-md transition-colors ${
-            contextOpen && contextTab === 'tasks'
+            filterOpen || activeFilterCount > 0
               ? 'border-burgundy-200 bg-burgundy-600 text-white'
-              : 'border-parchment-200 bg-white/88 text-ink-700 hover:bg-white'
+              : 'border-white/50 bg-white/56 text-ink-700 hover:bg-white/76'
           }`}
         >
-          Aufgaben
-          <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${
-            contextOpen && contextTab === 'tasks'
-              ? 'bg-white/20 text-white'
-              : 'bg-parchment-100 text-ink-500'
-          }`}>
-            {taskCount}
-          </span>
+          Filter
+          {activeFilterCount > 0 && (
+            <span className="ml-2 rounded-full bg-white/22 px-2 py-0.5 text-[11px] text-white">
+              {activeFilterCount}
+            </span>
+          )}
         </button>
-      ) : undefined}
+      )}
+      sidePanelVisible={filterOpen}
+      sidePanelLabel="Filter und Kartensteuerung"
+      sidePanel={<ModulePanel embedded onDone={() => setFilterOpen(false)} />}
       inspector={(
         <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
           <nav className="flex shrink-0 border-b border-parchment-200 bg-parchment-50 px-2" aria-label="Kontextbereich">

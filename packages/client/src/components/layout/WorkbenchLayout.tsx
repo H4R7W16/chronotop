@@ -11,6 +11,10 @@ interface WorkbenchLayoutProps {
   inspectorLabel: string;
   onInspectorClose?: () => void;
   stageActions?: ReactNode;
+  sidePanel?: ReactNode;
+  sidePanelVisible?: boolean;
+  sidePanelLabel?: string;
+  timelineContentHeight?: number;
 }
 
 export function WorkbenchLayout({
@@ -22,6 +26,10 @@ export function WorkbenchLayout({
   inspectorLabel,
   onInspectorClose,
   stageActions,
+  sidePanel,
+  sidePanelVisible = false,
+  sidePanelLabel = 'Filter',
+  timelineContentHeight,
 }: WorkbenchLayoutProps) {
   const [timelineHeight, setTimelineHeight] = useState(64);
   const renderTimeline = useCallback((mode: TimelineDockMode) => (
@@ -35,9 +43,25 @@ export function WorkbenchLayout({
       </div>
 
       {stageActions && (
-        <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-2">
+        <div className="pointer-events-none absolute right-3 top-3 z-20 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center justify-end gap-2">
           {stageActions}
         </div>
+      )}
+
+      {sidePanel && (
+        <aside
+          data-chronotop-filter-sheet
+          className={`absolute left-3 right-3 z-30 flex max-h-[min(62vh,38rem)] origin-right flex-col overflow-hidden rounded-md border border-white/45 bg-white/38 shadow-2xl backdrop-blur-[3px] transition-[opacity,transform] duration-200 ease-out lg:left-auto lg:right-4 lg:top-4 lg:w-[25rem] lg:max-h-none ${
+            sidePanelVisible ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-[calc(100%+1.5rem)] opacity-0'
+          }`}
+          style={{
+            bottom: `calc(${timelineHeight}px + 0.75rem)`,
+          }}
+          aria-label={sidePanelLabel}
+          aria-hidden={!sidePanelVisible}
+        >
+          {sidePanel}
+        </aside>
       )}
 
       {inspectorVisible && inspector && (
@@ -53,6 +77,7 @@ export function WorkbenchLayout({
       <TimelineDock
         storageKey={`${storageKey}:timeline-dock`}
         onHeightChange={setTimelineHeight}
+        contentMaxHeight={timelineContentHeight}
       >
         {renderTimeline}
       </TimelineDock>

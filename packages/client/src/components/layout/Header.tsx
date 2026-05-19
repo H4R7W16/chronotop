@@ -6,7 +6,6 @@ import { useAuthStore } from '../../store/useAuthStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
 import { useIsTablet } from '../../hooks/useMediaQuery.js';
 import { isStaticDemo } from '../../config.js';
-import { ModulePanel } from './ModulePanel.js';
 
 export function Header() {
   const { t } = useTranslation();
@@ -43,13 +42,7 @@ export function Header() {
           </Link>
 
           {moduleId && (
-            <div className="ml-auto">
-              <ModulePanel compact />
-            </div>
-          )}
-
-          {moduleId && (
-            <nav className="flex min-w-0 gap-1 overflow-x-auto" aria-label="Hauptnavigation">
+            <nav className="ml-auto flex min-w-0 gap-1 overflow-x-auto" aria-label="Hauptnavigation">
               <NavLink to={`/learn/${moduleId}`} active={isActive('/learn')} compact>
                 {t('nav.learn')}
               </NavLink>
@@ -120,13 +113,7 @@ export function Header() {
         )}
 
         {moduleId && (
-          <div className="order-3 w-full sm:order-none sm:w-auto sm:ml-auto">
-            <ModulePanel />
-          </div>
-        )}
-
-        {moduleId && (
-          <nav className="flex min-w-0 gap-1 overflow-x-auto text-sm">
+          <nav className="ml-auto flex min-w-0 gap-1 overflow-x-auto text-sm">
             <NavLink to={`/learn/${moduleId}`} active={isActive('/learn')}>
               {t('nav.learn')}
             </NavLink>

@@ -63,9 +63,10 @@ interface TimelineItem {
 
 interface TimelineViewProps {
   density?: 'mini' | 'full';
+  onContentHeightChange?: (height: number) => void;
 }
 
-export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
+export function TimelineView({ density = 'full', onContentHeightChange }: TimelineViewProps = {}) {
   const { t, i18n } = useTranslation();
   const loc = useLocalized();
   const currentModule = useChronotopStore(s => s.currentModule);
@@ -249,6 +250,7 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
   const totalLanes = Math.max(...layoutItems.map(item => item.lane + 1), 1);
   const trackHeight = Math.max(totalLanes * (LANE_HEIGHT + LANE_GAP), LANE_HEIGHT + LANE_GAP);
   const totalHeight = TOP_PADDING + trackHeight + 14;
+  const preferredFullContentHeight = 50 + MINIMAP_HEIGHT + totalHeight + 34;
   const cursorX = cursorYear != null ? yearToX(cursorYear) : null;
   const pointX = pointYear != null ? yearToX(pointYear) : null;
   const rangeFromX = rangeYears != null ? yearToX(Math.min(rangeYears.from, rangeYears.to)) : null;
@@ -413,6 +415,10 @@ export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
     : filterMode === 'range' ? (isRangeDragging ? 'cursor-grabbing' : 'cursor-crosshair')
     : (isDragging ? 'cursor-grabbing' : 'cursor-grab');
   const timelineSummary = `${scale.mode === 'segmented' ? 'Phasenansicht' : `${formatYear(scale.minYear)} - ${formatYear(scale.maxYear)}`} · ${visibleEvents.length} von ${candidateEvents.length} Ereignissen`;
+
+  useEffect(() => {
+    onContentHeightChange?.(preferredFullContentHeight);
+  }, [onContentHeightChange, preferredFullContentHeight]);
 
   const activeFilterLabels = [
     searchQuery.trim() ? `Suche: ${clipText(searchQuery.trim(), 18)}` : null,
