@@ -34,7 +34,6 @@ const MINIMAP_HEIGHT = 30;
 const MIN_SPAN_WIDTH = 22;
 const INSTANT_HIT_WIDTH = 32;
 const EVENT_GAP = 10;
-const RANGE_COMMIT_THRESHOLD_YEARS = 0.2;
 const PAN_DRAG_THRESHOLD_PX = 3;
 const MAX_AUTO_ZOOM = 14;
 const MAX_MANUAL_ZOOM = 20;
@@ -62,7 +61,11 @@ interface TimelineItem {
   visualEnd: number;
 }
 
-export function TimelineView() {
+interface TimelineViewProps {
+  density?: 'mini' | 'full';
+}
+
+export function TimelineView({ density = 'full' }: TimelineViewProps = {}) {
   const { t, i18n } = useTranslation();
   const loc = useLocalized();
   const currentModule = useChronotopStore(s => s.currentModule);
@@ -77,8 +80,6 @@ export function TimelineView() {
   const timeFilter = useChronotopStore(s => s.timeFilter);
   const themeFilter = useChronotopStore(s => s.themeFilter);
   const searchQuery = useChronotopStore(s => s.searchQuery);
-  const setTimeFilter = useChronotopStore(s => s.setTimeFilter);
-  const setThemeFilter = useChronotopStore(s => s.setThemeFilter);
   const selectEvent = useChronotopStore(s => s.selectEvent);
   const hoverEvent = useChronotopStore(s => s.hoverEvent);
   const setAnalysisFocus = useChronotopStore(s => s.setAnalysisFocus);
@@ -123,28 +124,11 @@ export function TimelineView() {
     setPanX(current => clampPan(current, width, zoom));
   }, [width, zoom]);
 
-  useEffect(() => {
-    if (filterMode === 'point' && pointYear != null) {
-      setTimeFilter({
-        from: yearToIso(pointYear - 0.5),
-        to: yearToIso(pointYear + 0.5),
-      });
-    }
-  }, [filterMode, pointYear, setTimeFilter]);
-
   const lang = i18n.language;
   const themeOptions = useMemo(
     () => buildThemeOptions(events, places, movements, concepts, lang),
     [events, places, movements, concepts, lang],
   );
-
-  useEffect(() => {
-    const available = new Set(themeOptions.map(option => option.id));
-    setThemeFilter(current => {
-      const next = current.filter(id => available.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [themeOptions, setThemeFilter]);
 
   const datedEvents = useMemo(
     () => sortEventsByDate(events).filter(event => !!getEventDate(event)),
@@ -260,32 +244,10 @@ export function TimelineView() {
   const miniViewStartX = Math.max(0, (-panX / innerWidth) * width);
   const miniViewWidth = Math.min(width / zoom, width - miniViewStartX);
 
-  const clearTimeFilter = useCallback(() => {
-    setFilterMode('all');
-    setPointYear(null);
-    updateRangeYears(null);
-    setTimeFilter({});
-  }, [setTimeFilter, updateRangeYears]);
-
-  const switchMode = useCallback((mode: FilterMode) => {
-    if (mode === 'all') {
-      clearTimeFilter();
-      return;
-    }
-    setFilterMode(mode);
-    setPointYear(null);
-    updateRangeYears(null);
-    setTimeFilter({});
-  }, [clearTimeFilter, setTimeFilter, updateRangeYears]);
-
   const applyRangeFilter = useCallback((from: number, to: number) => {
     const normalized = { from: Math.min(from, to), to: Math.max(from, to) };
-    setFilterMode('range');
-    setPointYear(null);
-    updateRangeYears(normalized);
-    setTimeFilter({ from: yearToIso(normalized.from), to: yearToIso(normalized.to) });
     centerOnYearRange(normalized.from, normalized.to);
-  }, [centerOnYearRange, setTimeFilter, updateRangeYears]);
+  }, [centerOnYearRange]);
 
   const zoomBy = useCallback((factor: number) => {
     const centerRatio = (width / 2 - panX) / innerWidth;
@@ -305,14 +267,6 @@ export function TimelineView() {
     centerOnYearRange(extent.minYear, extent.maxYear);
   }, [visibleEvents, candidateEvents, centerOnYearRange]);
 
-  const toggleTheme = useCallback((themeId: ThemeFilterId) => {
-    setThemeFilter(current =>
-      current.includes(themeId)
-        ? current.filter(id => id !== themeId)
-        : [...current, themeId],
-    );
-  }, [setThemeFilter]);
-
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -320,25 +274,14 @@ export function TimelineView() {
     const year = xToYear(xLocal);
     setCursorYear(year);
 
-    if (filterMode === 'point') {
-      setPointYear(year);
-      return;
-    }
-
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerStateRef.current = {
       pointerId: event.pointerId,
-      mode: filterMode === 'range' ? 'range' : 'pan',
+      mode: 'pan',
       startX: event.clientX,
       startYear: year,
       startPan: panX,
     };
-
-    if (filterMode === 'range') {
-      setIsRangeDragging(true);
-      updateRangeYears({ from: year, to: year });
-      return;
-    }
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -378,18 +321,9 @@ export function TimelineView() {
 
     if (pointerState.mode === 'range') {
       setIsRangeDragging(false);
-      const range = rangePreviewRef.current;
-      if (!range || Math.abs(range.from - range.to) < RANGE_COMMIT_THRESHOLD_YEARS) {
-        updateRangeYears(null);
-        setTimeFilter({});
-        return;
-      }
-
-      const normalized = { from: Math.min(range.from, range.to), to: Math.max(range.from, range.to) };
-      updateRangeYears(normalized);
-      setTimeFilter({ from: yearToIso(normalized.from), to: yearToIso(normalized.to) });
+      updateRangeYears(null);
     }
-  }, [setTimeFilter, updateRangeYears]);
+  }, [updateRangeYears]);
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     finishPointerInteraction(event);
@@ -468,10 +402,86 @@ export function TimelineView() {
     : (isDragging ? 'cursor-grabbing' : 'cursor-grab');
   const timelineSummary = `${scale.mode === 'segmented' ? 'Phasenansicht' : `${formatYear(scale.minYear)} - ${formatYear(scale.maxYear)}`} · ${visibleEvents.length} von ${candidateEvents.length} Ereignissen`;
 
+  const selectedEvent = selectedEventId ? events.find(event => event.id === selectedEventId) : null;
+  const activeFilterLabels = [
+    searchQuery.trim() ? `Suche: ${clipText(searchQuery.trim(), 18)}` : null,
+    timeFilter.from || timeFilter.to ? formatTimeFilter(timeFilter) : null,
+    themeFilter.length > 0 ? `${themeFilter.length} Themen` : null,
+  ].filter(Boolean) as string[];
+
   if (events.length === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-parchment-50 p-4 text-sm text-ink-300">
         {t('event.noEvents')}
+      </div>
+    );
+  }
+
+  if (density === 'mini') {
+    const miniWidth = Math.max(width, 1);
+    return (
+      <div ref={containerRef} className="h-full min-h-0 overflow-hidden bg-white/20 px-3 py-1">
+        <div className="flex h-full min-h-0 items-center gap-3">
+          <svg
+            viewBox={`0 0 ${miniWidth} 18`}
+            preserveAspectRatio="none"
+            className="h-4 min-w-0 flex-1"
+            aria-hidden="true"
+          >
+            <rect x={0} y={8} width={miniWidth} height={2} rx={1} fill="var(--color-ink-300)" opacity={0.45} />
+            {scale.segments.map(segment => (
+              <rect
+                key={segment.id}
+                x={segment.ratioStart * miniWidth}
+                y={6}
+                width={Math.max(1, (segment.ratioEnd - segment.ratioStart) * miniWidth)}
+                height={6}
+                rx={2}
+                fill={phaseTint(segment.themeId, themeOptions)}
+                opacity={0.72}
+              />
+            ))}
+            {layoutItems.map(item => {
+              const x = scale.ratioForYear(item.startYear) * miniWidth;
+              const x2 = scale.ratioForYear(item.endYear) * miniWidth;
+              const isSelected = item.event.id === selectedEventId;
+              const isVisibleByTime = visibleEventIds.has(item.event.id);
+              const option = dominantThemeOption(item.event, themeOptions, lang);
+              return (
+                <rect
+                  key={item.event.id}
+                  x={item.isInstant ? x - 1.8 : x}
+                  y={isSelected ? 2 : 5}
+                  width={item.isInstant ? 3.6 : Math.max(3.6, x2 - x)}
+                  height={isSelected ? 14 : 8}
+                  rx={1.8}
+                  fill={isSelected ? 'var(--color-burgundy-600)' : option.color}
+                  opacity={isSelected ? 1 : isVisibleByTime ? 0.82 : 0.22}
+                />
+              );
+            })}
+            {zoom > 1 && (
+              <rect
+                x={Math.max(0, (-panX / innerWidth) * miniWidth)}
+                y={1}
+                width={Math.max(5, Math.min(miniWidth / zoom, miniWidth))}
+                height={16}
+                rx={3}
+                fill="none"
+                stroke="var(--color-burgundy-500)"
+                strokeWidth={1.5}
+              />
+            )}
+          </svg>
+          <span className="hidden max-w-[16rem] shrink-0 truncate text-[11px] font-medium text-ink-600 sm:block">
+            {selectedEvent ? loc(selectedEvent.title) : timelineSummary}
+          </span>
+          {activeFilterLabels.length > 0 && (
+            <span className="hidden shrink-0 truncate text-[11px] text-burgundy-700 md:block">
+              {activeFilterLabels.join(' · ')}
+            </span>
+          )}
+        </div>
       </div>
     );
   }
@@ -481,23 +491,15 @@ export function TimelineView() {
       <div className="shrink-0 border-b border-parchment-200 bg-parchment-50 px-3 py-2 text-xs text-ink-500">
         <div className="flex min-w-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <span className="shrink-0 font-serif text-sm italic text-ink-700">Zeitleiste</span>
-
-          <div className="flex shrink-0 overflow-hidden rounded border border-parchment-300 bg-white" role="radiogroup" aria-label="Zeitfilter">
-            <ModeButton active={filterMode === 'all' && !timeFilter.from && !timeFilter.to} onClick={() => switchMode('all')}>Alle</ModeButton>
-            <ModeButton active={filterMode === 'point'} onClick={() => switchMode('point')}>Jahr</ModeButton>
-            <ModeButton active={filterMode === 'range'} onClick={() => switchMode('range')}>Zeitraum</ModeButton>
-          </div>
-
-          {(timeFilter.from || timeFilter.to) && (
-            <button
-              type="button"
-              onClick={clearTimeFilter}
-              className="max-w-full shrink-0 truncate rounded-full border border-burgundy-200 bg-burgundy-50 px-2.5 py-1 text-[11px] font-semibold text-burgundy-700 hover:bg-burgundy-100"
-              title="Zeitfilter entfernen"
+          {activeFilterLabels.map(label => (
+            <span
+              key={label}
+              className="max-w-[14rem] shrink-0 truncate rounded-full border border-burgundy-200 bg-burgundy-50 px-2.5 py-1 text-[11px] font-semibold text-burgundy-700"
+              title={label}
             >
-              {formatTimeFilter(timeFilter)} ×
-            </button>
-          )}
+              {label}
+            </span>
+          ))}
 
           {analysisFocus && (
             <button
@@ -540,22 +542,6 @@ export function TimelineView() {
           </div>
         </div>
 
-        <div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto pb-0.5">
-          <span className="mr-1 shrink-0 text-[11px] font-semibold uppercase text-ink-300">Themen</span>
-          <ThemeChip active={themeFilter.length === 0} label="Alle" onClick={() => setThemeFilter([])} />
-          {themeOptions.map(option => (
-            <ThemeChip
-              key={option.id}
-              option={option}
-              active={themeFilter.includes(option.id)}
-              label={option.label}
-              onClick={() => toggleTheme(option.id)}
-            />
-          ))}
-          <span className="ml-2 shrink-0 text-[11px] text-ink-400 md:hidden">
-            {timelineSummary}
-          </span>
-        </div>
       </div>
 
       <div className="shrink-0 border-b border-parchment-200 bg-parchment-50/80" style={{ height: MINIMAP_HEIGHT }}>

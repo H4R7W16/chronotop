@@ -1,4 +1,3 @@
-import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -7,6 +6,7 @@ import { useAuthStore } from '../../store/useAuthStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
 import { useIsTablet } from '../../hooks/useMediaQuery.js';
 import { isStaticDemo } from '../../config.js';
+import { ModulePanel } from './ModulePanel.js';
 
 export function Header() {
   const { t } = useTranslation();
@@ -16,20 +16,11 @@ export function Header() {
   const isTablet = useIsTablet();
   const moduleId = useChronotopStore(s => s.currentModuleId);
   const modules = useChronotopStore(s => s.modules);
-  const searchQuery = useChronotopStore(s => s.searchQuery);
-  const setSearchQuery = useChronotopStore(s => s.setSearchQuery);
   const currentModule = modules.find(m => m.id === moduleId);
   const user = useAuthStore(s => s.user);
   const logout = useAuthStore(s => s.logout);
 
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   const isActive = (path: string) => location.pathname.startsWith(path);
-
-  useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus();
-  }, [searchOpen]);
 
   async function handleLogout() {
     await logout();
@@ -52,7 +43,13 @@ export function Header() {
           </Link>
 
           {moduleId && (
-            <nav className="flex min-w-0 gap-1 ml-auto" aria-label="Hauptnavigation">
+            <div className="ml-auto">
+              <ModulePanel compact />
+            </div>
+          )}
+
+          {moduleId && (
+            <nav className="flex min-w-0 gap-1 overflow-x-auto" aria-label="Hauptnavigation">
               <NavLink to={`/learn/${moduleId}`} active={isActive('/learn')} compact>
                 {t('nav.learn')}
               </NavLink>
@@ -67,40 +64,6 @@ export function Header() {
                 Druck
               </Link>
             </nav>
-          )}
-
-          {moduleId && (
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setSearchOpen(v => !v)}
-                aria-label="Im Modul suchen"
-                aria-expanded={searchOpen}
-                className={`min-h-[40px] min-w-[40px] rounded-md border border-ink-200 px-2 text-sm font-medium ${searchQuery ? 'bg-burgundy-50 text-burgundy-700 border-burgundy-200' : 'text-ink-500 hover:bg-ink-50'}`}
-              >
-                Suche{searchQuery && <span className="ml-1 inline-block h-2 w-2 rounded-full bg-burgundy-500" />}
-              </button>
-              {searchOpen && (
-                <div className="absolute right-0 top-full mt-1 z-30 w-72 max-w-[90vw] rounded-md border border-ink-100 bg-white p-2 shadow-lg">
-                  <input
-                    ref={searchInputRef}
-                    type="search"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Im Modul suchen..."
-                    className="w-full rounded-md bg-ink-50 border border-ink-100 px-3 py-2 text-sm text-ink-700 placeholder-ink-300 focus:outline-none focus:bg-white focus:border-burgundy-400"
-                  />
-                  {searchQuery && (
-                    <button
-                      onClick={() => { setSearchQuery(''); setSearchOpen(false); }}
-                      className="mt-1 w-full min-h-[40px] rounded-md text-sm font-medium text-ink-500 hover:text-ink-800 hover:bg-ink-50"
-                    >
-                      Suche zurücksetzen
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
           )}
 
           {isStaticDemo ? (
@@ -157,25 +120,8 @@ export function Header() {
         )}
 
         {moduleId && (
-          <div className="order-3 w-full sm:order-none sm:w-auto sm:ml-auto relative">
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Im Modul suchen..."
-              className="w-full sm:w-52 lg:w-64 pl-8 pr-8 py-1.5 rounded-md text-sm bg-ink-50 border border-ink-100 placeholder-ink-300 text-ink-700 focus:outline-none focus:bg-white focus:border-burgundy-400"
-              aria-label="Im Modul suchen"
-            />
-            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-300 text-xs pointer-events-none">S</span>
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-ink-300 hover:text-ink-700 text-xs"
-                aria-label="Suche zuruecksetzen"
-              >
-                x
-              </button>
-            )}
+          <div className="order-3 w-full sm:order-none sm:w-auto sm:ml-auto">
+            <ModulePanel />
           </div>
         )}
 

@@ -1,11 +1,17 @@
 import { create } from 'zustand';
 import { api } from '../api/client.js';
 import type { AnalysisFocus } from '../lib/analysisFocus.js';
+import { DEFAULT_STYLE_ID, type MapStyleOption } from '../lib/mapStyle.js';
 import type { ThemeFilter } from '../lib/themeFilters.js';
 import type { ContentModule, Event, Place, TimeObject, Source, Actor, Concept, Movement, Task } from '@chronotop/shared';
 
 export type SelectionOrigin = 'map' | 'timeline' | 'detail' | 'concept' | 'author' | 'url' | 'programmatic';
 export type MapFollowMode = 'auto' | 'paused';
+export interface MapLayerVisibility {
+  markers: boolean;
+  shapes: boolean;
+  movements: boolean;
+}
 
 interface SelectEventOptions {
   origin?: SelectionOrigin;
@@ -99,6 +105,10 @@ interface ChronotopState {
   // Volltextsuche
   searchQuery: string;
 
+  // Kartenbuehne
+  mapStyleId: MapStyleOption['id'];
+  mapLayerVisibility: MapLayerVisibility;
+
   // Vollbild-Modus für Karte (blendet Header und Side-Panels aus)
   fullscreen: boolean;
 
@@ -116,6 +126,8 @@ interface ChronotopState {
   setTimeFilter: (filter: { from?: string; to?: string }) => void;
   setThemeFilter: (filter: ThemeFilter | ((current: ThemeFilter) => ThemeFilter)) => void;
   setSearchQuery: (q: string) => void;
+  setMapStyleId: (id: MapStyleOption['id']) => void;
+  setMapLayerVisibility: (visibility: Partial<MapLayerVisibility> | ((current: MapLayerVisibility) => Partial<MapLayerVisibility>)) => void;
   setFullscreen: (v: boolean) => void;
   setDemoDraftMode: (v: boolean) => void;
 
@@ -167,6 +179,8 @@ export const useChronotopStore = create<ChronotopState>((set, get) => ({
   timeFilter: {},
   themeFilter: [],
   searchQuery: '',
+  mapStyleId: DEFAULT_STYLE_ID,
+  mapLayerVisibility: { markers: true, shapes: true, movements: true },
   fullscreen: false,
 
   loadModules: async () => {
@@ -248,6 +262,13 @@ export const useChronotopStore = create<ChronotopState>((set, get) => ({
     themeFilter: typeof filter === 'function' ? filter(s.themeFilter) : filter,
   })),
   setSearchQuery: (q) => set({ searchQuery: q }),
+  setMapStyleId: (id) => set({ mapStyleId: id }),
+  setMapLayerVisibility: (visibility) => set(s => ({
+    mapLayerVisibility: {
+      ...s.mapLayerVisibility,
+      ...(typeof visibility === 'function' ? visibility(s.mapLayerVisibility) : visibility),
+    },
+  })),
   setFullscreen: (v) => set({ fullscreen: v }),
   setDemoDraftMode: (v) => set({ demoDraftMode: v }),
 

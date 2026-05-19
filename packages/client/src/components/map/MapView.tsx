@@ -3,7 +3,6 @@ import maplibregl from 'maplibre-gl';
 import {
   MAP_STYLES, DEFAULT_STYLE_ID, DEFAULT_CENTER, DEFAULT_ZOOM,
   buildHistoricStyle,
-  type MapStyleOption,
 } from '../../lib/mapStyle.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { isEventInTimeRange, sortEventsByDate, eventMatchesSearch, isPlaceValidInRange } from '../../lib/timelineUtils.js';
@@ -111,13 +110,13 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
   const hoverEvent = useChronotopStore(s => s.hoverEvent);
   const noteMapInteraction = useChronotopStore(s => s.noteMapInteraction);
   const requestMapFocus = useChronotopStore(s => s.requestMapFocus);
-  const setThemeFilter = useChronotopStore(s => s.setThemeFilter);
+  const mapStyleId = useChronotopStore(s => s.mapStyleId);
+  const mapLayerVisibility = useChronotopStore(s => s.mapLayerVisibility);
 
-  const [showMarkers, setShowMarkers] = useState(true);
-  const [showShapes, setShowShapes] = useState(true);
-  const [showMovements, setShowMovements] = useState(true);
-  const [styleId, setStyleId] = useState<MapStyleOption['id']>(DEFAULT_STYLE_ID);
   const [styleVersion, setStyleVersion] = useState(0);
+  const showMarkers = mapLayerVisibility.markers;
+  const showShapes = mapLayerVisibility.shapes;
+  const showMovements = mapLayerVisibility.movements;
   const programmaticCameraRef = useRef(false);
   const programmaticCameraTimerRef = useRef<number | null>(null);
 
@@ -153,18 +152,6 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     if (!analysisFocus) return new Set<string>();
     return new Set(events.filter(event => eventMatchesAnalysisFocus(event, analysisFocus)).map(event => event.id));
   }, [analysisFocus, events]);
-
-  useEffect(() => {
-    setThemeFilter([]);
-  }, [currentModule?.id]);
-
-  useEffect(() => {
-    const available = new Set(themeOptions.map(option => option.id));
-    setThemeFilter(current => {
-      const next = current.filter(id => available.has(id));
-      return next.length === current.length ? current : next;
-    });
-  }, [themeOptions]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -216,9 +203,10 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const historicOpt = currentModule?.basemapUrl
       ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
       : null;
-    const opt = [...MAP_STYLES, ...(historicOpt ? [historicOpt] : [])].find(s => s.id === styleId);
+    const effectiveStyleId = (!historicOpt && mapStyleId === 'historic') ? DEFAULT_STYLE_ID : mapStyleId;
+    const opt = [...MAP_STYLES, ...(historicOpt ? [historicOpt] : [])].find(s => s.id === effectiveStyleId);
     if (opt) map.setStyle(opt.spec);
-  }, [styleId, currentModule]);
+  }, [mapStyleId, currentModule]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -663,29 +651,6 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     else map.once('load', apply);
   }, [drawPoints]);
 
-  const historicStyleOption = currentModule?.basemapUrl
-    ? buildHistoricStyle(currentModule.basemapUrl, currentModule.basemapLabel ?? 'Hist. Karte')
-    : null;
-  const availableStyles: MapStyleOption[] = historicStyleOption
-    ? [...MAP_STYLES, historicStyleOption]
-    : MAP_STYLES;
-  const effectiveStyleId = (!historicStyleOption && styleId === 'historic') ? DEFAULT_STYLE_ID : styleId;
-  const statsLang = i18n.language;
-  const eventPlaceCount = events.filter(e =>
-    e.place
-    && !e.place.geometry
-    && isEventInTimeRange(e, timeFilter.from, timeFilter.to)
-    && eventMatchesSearch(e, searchQuery)
-    && eventMatchesTheme(e, themeFilter, statsLang)
-  ).length;
-  const geometryCount = places.filter(p =>
-    p.geometry
-    && isPlaceValidInRange(p.validFrom, p.validTo, timeFilter.from, timeFilter.to)
-    && placeMatchesSearch(p, searchQuery, statsLang)
-    && placeMatchesTheme(p, themeFilter, statsLang)
-  ).length;
-  const movementCount = movements.filter(m => movementMatchesTheme(m, themeFilter, eventById.get(m.eventId ?? ''), statsLang)).length;
-
   return (
     <div className="relative w-full h-full">
       <div ref={containerRef} className="w-full h-full" />
@@ -699,21 +664,7 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
           Zur Auswahl
         </button>
       )}
-      <MapOverlay
-        availableStyles={availableStyles}
-        styleId={effectiveStyleId}
-        onStyleChange={setStyleId}
-        themeOptions={themeOptions}
-        themeFilter={themeFilter}
-        onThemeFilterChange={setThemeFilter}
-        showMarkers={showMarkers}
-        onToggleMarkers={() => setShowMarkers(v => !v)}
-        showShapes={showShapes}
-        onToggleShapes={() => setShowShapes(v => !v)}
-        showMovements={showMovements}
-        onToggleMovements={() => setShowMovements(v => !v)}
-        layerStats={{ markers: eventPlaceCount, shapes: geometryCount, movements: movementCount }}
-      />
+      <MapOverlay />
     </div>
   );
 

@@ -1,133 +1,158 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useModuleData } from '../../hooks/useModuleData.js';
 import { useUrlSync } from '../../hooks/useUrlSync.js';
 import { MapView } from '../map/MapView.js';
 import { TimelineView } from '../timeline/TimelineView.js';
 import { DetailPanel } from '../detail/DetailPanel.js';
 import { TaskPanel } from '../tasks/TaskPanel.js';
-import { WorkbenchLayout, type WorkbenchPresetId } from './WorkbenchLayout.js';
+import { WorkbenchLayout } from './WorkbenchLayout.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
-import { api } from '../../api/client.js';
+import type { TimelineDockMode } from './TimelineDock.js';
 
-type RightTab = 'detail' | 'tasks';
-type DetailTab = 'overview' | 'context' | 'sources' | 'notes';
+type ContextTab = 'details' | 'sources' | 'tasks';
 
 export function LearningLayout() {
   useModuleData();
   useUrlSync();
   const loc = useLocalized();
   const selectedEventId = useChronotopStore(s => s.selectedEventId);
-  const events         = useChronotopStore(s => s.events);
-  const fullscreen      = useChronotopStore(s => s.fullscreen);
-  const moduleId        = useChronotopStore(s => s.currentModuleId);
+  const selectionRevision = useChronotopStore(s => s.selectionRevision);
+  const selectEvent = useChronotopStore(s => s.selectEvent);
+  const events = useChronotopStore(s => s.events);
+  const tasks = useChronotopStore(s => s.tasks);
+  const fullscreen = useChronotopStore(s => s.fullscreen);
+  const moduleId = useChronotopStore(s => s.currentModuleId);
   const selectedEvent = selectedEventId ? events.find(e => e.id === selectedEventId) : null;
+  const taskCount = tasks.length;
 
-  const [rightTab, setRightTab] = useState<RightTab>('detail');
-  const [detailTab, setDetailTab] = useState<DetailTab>('overview');
-  const [taskCount, setTaskCount] = useState(0);
-  const [layoutPreset, setLayoutPreset] = useState<WorkbenchPresetId>('tasks');
-
-  useEffect(() => {
-    if (!moduleId) return;
-    api.getTasks(moduleId)
-      .then(tasks => setTaskCount(tasks.length))
-      .catch(() => setTaskCount(0));
-  }, [moduleId]);
+  const [contextOpen, setContextOpen] = useState(false);
+  const [contextTab, setContextTab] = useState<ContextTab>('details');
 
   useEffect(() => {
-    if (selectedEventId) {
-      setRightTab('detail');
-      setDetailTab('overview');
-      setLayoutPreset(current => current === 'tasks' ? 'analysis' : current);
-    }
-  }, [selectedEventId]);
+    if (!selectedEventId) return;
+    setContextTab('details');
+    setContextOpen(true);
+  }, [selectedEventId, selectionRevision]);
 
-  const showTabs = taskCount > 0;
-
-  useEffect(() => {
-    if (!selectedEventId && taskCount > 0) {
-      setRightTab('tasks');
-      setLayoutPreset('tasks');
-    }
-  }, [selectedEventId, taskCount]);
-
-  const showRightPanel = showTabs || !!selectedEventId;
-
-  const peekLabel = selectedEvent
-    ? loc(selectedEvent.title)
-    : showTabs
-      ? `${taskCount} Aufgaben`
-      : 'Details';
-
-  // Trigger zwingt das Bottom-Sheet auf Tablet zum Aufklappen bei neuer Auswahl
-  // oder beim Wechsel in den Aufgaben-Modus.
-  const inspectorTriggerKey = selectedEventId ?? (showTabs ? `tasks:${moduleId ?? ''}` : null);
-
-  const handlePresetSelect = (preset: WorkbenchPresetId) => {
-    setLayoutPreset(preset);
-    if (preset === 'tasks' && showTabs) {
-      setRightTab('tasks');
-    } else if (preset !== 'map') {
-      setRightTab('detail');
-      setDetailTab(preset === 'sources' ? 'sources' : 'overview');
-    }
+  const openTasks = () => {
+    setContextTab('tasks');
+    setContextOpen(true);
   };
+
+  const closeContext = () => {
+    if (contextTab === 'tasks') {
+      setContextOpen(false);
+      return;
+    }
+    selectEvent(null, { origin: 'detail' });
+    setContextOpen(false);
+  };
+
+  const showContext = !fullscreen && contextOpen && (contextTab === 'tasks' || !!selectedEventId);
+  const inspectorLabel = contextTab === 'tasks'
+    ? 'Aufgaben'
+    : contextTab === 'sources'
+      ? 'Quellen'
+      : selectedEvent
+        ? loc(selectedEvent.title)
+        : 'Details';
 
   return (
     <WorkbenchLayout
       storageKey={`learn:${moduleId ?? 'module'}`}
       map={<MapView />}
-      timeline={<TimelineView />}
-      inspectorVisible={!fullscreen && showRightPanel}
-      inspectorLabel="Details, Quellen und Aufgaben"
-      inspectorTriggerKey={inspectorTriggerKey}
-      inspectorPeekLabel={peekLabel}
-      activePreset={layoutPreset}
-      onPresetSelect={handlePresetSelect}
-      toolbarMeta={selectedEventId ? 'Ereignis ausgewählt' : showTabs ? 'Aufgabenmodus' : undefined}
+      timeline={(mode: TimelineDockMode) => (
+        <TimelineView density={mode === 'mini' ? 'mini' : 'full'} />
+      )}
+      inspectorVisible={showContext}
+      inspectorLabel={inspectorLabel}
+      onInspectorClose={closeContext}
+      stageActions={taskCount > 0 ? (
+        <button
+          type="button"
+          onClick={openTasks}
+          className={`pointer-events-auto min-h-[40px] rounded-md border px-3 text-sm font-semibold shadow-lg backdrop-blur-md transition-colors ${
+            contextOpen && contextTab === 'tasks'
+              ? 'border-burgundy-200 bg-burgundy-600 text-white'
+              : 'border-parchment-200 bg-white/88 text-ink-700 hover:bg-white'
+          }`}
+        >
+          Aufgaben
+          <span className={`ml-2 rounded-full px-2 py-0.5 text-[11px] ${
+            contextOpen && contextTab === 'tasks'
+              ? 'bg-white/20 text-white'
+              : 'bg-parchment-100 text-ink-500'
+          }`}>
+            {taskCount}
+          </span>
+        </button>
+      ) : undefined}
       inspector={(
-        <div className="h-full min-h-0 flex flex-col overflow-hidden">
-          {showTabs && (
-            <div className="shrink-0 flex border-b border-parchment-200 bg-parchment-50 text-sm">
-              <button
-                onClick={() => { setRightTab('detail'); setDetailTab('overview'); setLayoutPreset('analysis'); }}
-                className={`flex-1 px-3 py-2 font-medium border-b-2 transition-colors ${
-                  rightTab === 'detail'
-                    ? 'text-burgundy-600 border-burgundy-500 bg-white'
-                    : 'text-ink-500 border-transparent hover:text-ink-700 hover:bg-white/50'
-                }`}
-              >
-                {selectedEventId ? 'Details' : 'Detail'}
-              </button>
-              <button
-                onClick={() => { setRightTab('tasks'); setLayoutPreset('tasks'); }}
-                className={`flex-1 px-3 py-2 font-medium border-b-2 transition-colors ${
-                  rightTab === 'tasks'
-                    ? 'text-burgundy-600 border-burgundy-500 bg-white'
-                    : 'text-ink-500 border-transparent hover:text-ink-700 hover:bg-white/50'
-                }`}
-              >
-                Aufgaben
-                <span className={`ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full ${
-                  rightTab === 'tasks'
-                    ? 'bg-burgundy-100 text-burgundy-600'
-                    : 'bg-parchment-200 text-ink-500'
-                }`}>
+        <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
+          <nav className="flex shrink-0 border-b border-parchment-200 bg-parchment-50 px-2" aria-label="Kontextbereich">
+            <ContextTabButton
+              active={contextTab === 'details'}
+              disabled={!selectedEventId}
+              onClick={() => selectedEventId && setContextTab('details')}
+            >
+              Details
+            </ContextTabButton>
+            <ContextTabButton
+              active={contextTab === 'sources'}
+              disabled={!selectedEventId}
+              onClick={() => selectedEventId && setContextTab('sources')}
+            >
+              Quellen
+            </ContextTabButton>
+            <ContextTabButton
+              active={contextTab === 'tasks'}
+              onClick={() => setContextTab('tasks')}
+            >
+              Aufgaben
+              {taskCount > 0 && (
+                <span className="ml-1 rounded-full bg-parchment-200 px-1.5 py-0.5 text-[10px] text-ink-500">
                   {taskCount}
                 </span>
-              </button>
-            </div>
-          )}
+              )}
+            </ContextTabButton>
+          </nav>
 
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {rightTab === 'detail' || !showTabs
-              ? <DetailPanel preferredTab={detailTab} />
-              : <TaskPanel />
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {contextTab === 'tasks'
+              ? <TaskPanel />
+              : <DetailPanel preferredTab={contextTab === 'sources' ? 'sources' : 'overview'} />
             }
           </div>
         </div>
       )}
     />
+  );
+}
+
+function ContextTabButton({
+  active,
+  disabled,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`min-h-[44px] min-w-0 flex-1 border-b-2 px-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        active
+          ? 'border-burgundy-600 bg-white text-burgundy-700'
+          : 'border-transparent text-ink-500 hover:bg-white/70 hover:text-ink-800'
+      }`}
+    >
+      <span className="truncate">{children}</span>
+    </button>
   );
 }
