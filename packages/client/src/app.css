@@ -75,8 +75,8 @@ h1, h2, h3, h4 {
   box-shadow: 0 1px 3px rgba(35, 33, 29, 0.15) !important;
 }
 .chronotop-map-stage .maplibregl-ctrl-top-left {
-  left: var(--chronotop-map-tools-left, 7rem);
-  top: var(--chronotop-map-tools-top, 0.75rem);
+  left: var(--chronotop-style-tools-left, 7rem);
+  top: var(--chronotop-style-tools-top, 0.75rem);
   z-index: 60;
   display: flex;
   flex-direction: column;
@@ -85,11 +85,50 @@ h1, h2, h3, h4 {
   pointer-events: none;
   transition: left 180ms ease, top 180ms ease;
 }
-.chronotop-map-stage .maplibregl-ctrl-top-left .maplibregl-ctrl {
+.chronotop-map-stage .maplibregl-ctrl-top-right {
+  right: var(--chronotop-map-actions-right, 0.75rem);
+  top: var(--chronotop-map-actions-top, 0.75rem);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  transition: right 180ms ease, top 180ms ease;
+}
+.chronotop-map-stage .maplibregl-ctrl-bottom-left {
+  left: var(--chronotop-map-scale-left, 0.75rem);
+  bottom: var(--chronotop-map-scale-bottom, 5rem);
+  z-index: 60;
+  pointer-events: none;
+  transition: left 180ms ease, bottom 180ms ease;
+}
+.chronotop-map-stage .maplibregl-ctrl-top-left .maplibregl-ctrl,
+.chronotop-map-stage .maplibregl-ctrl-top-right .maplibregl-ctrl,
+.chronotop-map-stage .maplibregl-ctrl-bottom-left .maplibregl-ctrl {
   float: none;
   clear: none;
   margin: 0 !important;
   pointer-events: auto;
+}
+@media (max-width: 1023px) {
+  .chronotop-map-stage .maplibregl-ctrl-top-right {
+    right: var(--chronotop-map-actions-right-compact, 0.75rem);
+  }
+}
+[data-chronotop-context-sheet][data-chronotop-avoid-left-panel="true"] {
+  left: var(--chronotop-context-left);
+  right: 0.75rem;
+  top: 4rem;
+  max-height: none;
+}
+@media (min-width: 1024px) {
+  [data-chronotop-context-sheet][data-chronotop-avoid-left-panel="true"] {
+    left: auto;
+    right: 1rem;
+    top: 4rem;
+    width: 29rem;
+  }
 }
 .chronotop-map-stage .maplibregl-ctrl-group {
   overflow: hidden;

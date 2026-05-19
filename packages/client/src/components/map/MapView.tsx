@@ -191,16 +191,16 @@ export function MapView({ onMapClick, drawMode, drawPoints, onDrawClick }: MapVi
     const styleControl = new MapStyleSwitcherControl(availableMapStyles, effectiveMapStyleId, setMapStyleId);
     styleControlRef.current = styleControl;
     map.addControl(styleControl, 'top-left');
-    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-left');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right');
     map.addControl(new maplibregl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
       trackUserLocation: true,
-    }), 'top-left');
+    }), 'top-right');
     const fullscreenControl = new MapFullscreenToggleControl(fullscreen, setFullscreen);
     fullscreenControlRef.current = fullscreenControl;
-    map.addControl(fullscreenControl, 'top-left');
-    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'top-left');
-    markMapToolsContainer(map);
+    map.addControl(fullscreenControl, 'top-right');
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left');
+    markMapControlContainers(map);
 
     (window as any).__chronotopMap = map;
     map.on('load', () => {
@@ -1389,7 +1389,7 @@ class MapStyleSwitcherControl implements maplibregl.IControl {
     this.container = container;
     this.select = select;
     this.renderOptions();
-    markMapToolsContainer(map);
+    markMapControlContainers(map);
 
     return container;
   }
@@ -1460,7 +1460,7 @@ class MapFullscreenToggleControl implements maplibregl.IControl {
     this.container = container;
     this.button = button;
     this.renderButton();
-    markMapToolsContainer(map);
+    markMapControlContainers(map);
 
     return container;
   }
@@ -1498,11 +1498,17 @@ function stopMapControlPropagation(event: Event) {
   event.stopPropagation();
 }
 
-function markMapToolsContainer(map: maplibregl.Map) {
+function markMapControlContainers(map: maplibregl.Map) {
   window.requestAnimationFrame(() => {
-    const controls = map.getContainer().querySelector<HTMLElement>('.maplibregl-ctrl-top-left');
-    controls?.setAttribute('data-chronotop-map-tools', '');
-    controls?.setAttribute('aria-label', 'Kartenwerkzeuge');
+    const styleControls = map.getContainer().querySelector<HTMLElement>('.maplibregl-ctrl-top-left');
+    const actionControls = map.getContainer().querySelector<HTMLElement>('.maplibregl-ctrl-top-right');
+    const scaleControls = map.getContainer().querySelector<HTMLElement>('.maplibregl-ctrl-bottom-left');
+    styleControls?.setAttribute('data-chronotop-style-tools', '');
+    styleControls?.setAttribute('aria-label', 'Kartendarstellung');
+    actionControls?.setAttribute('data-chronotop-map-actions', '');
+    actionControls?.setAttribute('aria-label', 'Kartenwerkzeuge');
+    scaleControls?.setAttribute('data-chronotop-map-scale', '');
+    scaleControls?.setAttribute('aria-label', 'Kartenmaßstab');
   });
 }
 
@@ -1608,7 +1614,7 @@ function overlayAwareRevealPadding(map: maplibregl.Map, base: RevealPadding): Re
   if (filterSheet) {
     const filterRect = filterSheet.getBoundingClientRect();
     if (rectsOverlap(mapRect, filterRect)) {
-      padding.right = Math.max(padding.right, Math.ceil(mapRect.right - Math.max(mapRect.left, filterRect.left) + 22));
+      padding.left = Math.max(padding.left, Math.ceil(Math.min(mapRect.right, filterRect.right) - mapRect.left + 22));
     }
   }
 

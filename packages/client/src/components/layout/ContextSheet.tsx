@@ -3,15 +3,21 @@ import type { ReactNode } from 'react';
 interface ContextSheetProps {
   title: string;
   timelineHeight: number;
+  avoidLeftPanel?: boolean;
   onClose: () => void;
   children: ReactNode;
 }
 
-export function ContextSheet({ title, timelineHeight, onClose, children }: ContextSheetProps) {
+export function ContextSheet({ title, timelineHeight, avoidLeftPanel = false, onClose, children }: ContextSheetProps) {
+  const positionClass = avoidLeftPanel
+    ? 'left-3 right-3 top-16 max-h-none lg:w-[29rem]'
+    : 'left-3 right-3 max-h-[min(54vh,34rem)] lg:left-auto lg:right-4 lg:top-4 lg:w-[29rem] lg:max-h-none';
+
   return (
     <aside
       data-chronotop-context-sheet
-      className="absolute left-3 right-3 z-30 flex max-h-[min(54vh,34rem)] flex-col overflow-hidden rounded-md border border-parchment-200 bg-white/94 shadow-2xl backdrop-blur-xl lg:left-auto lg:right-4 lg:top-4 lg:w-[29rem] lg:max-h-none"
+      data-chronotop-avoid-left-panel={avoidLeftPanel ? 'true' : undefined}
+      className={`absolute z-30 flex min-w-0 flex-col overflow-hidden rounded-md border border-parchment-200 bg-white/94 shadow-2xl backdrop-blur-xl transition-[left,right,opacity] duration-200 ease-out ${positionClass}`}
       style={{
         bottom: `calc(${timelineHeight}px + 0.75rem)`,
       }}

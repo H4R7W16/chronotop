@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useModuleData } from '../../hooks/useModuleData.js';
 import { useUrlSync } from '../../hooks/useUrlSync.js';
 import { MapView } from '../map/MapView.js';
@@ -9,7 +10,8 @@ import { WorkbenchLayout } from './WorkbenchLayout.js';
 import { ModulePanel } from './ModulePanel.js';
 import { useChronotopStore } from '../../store/useChronotopStore.js';
 import { useLocalized } from '../../i18n/useLocalized.js';
-import { useMediaQuery } from '../../hooks/useMediaQuery.js';
+import { eventMatchesSearch, isEventInTimeRange } from '../../lib/timelineUtils.js';
+import { eventMatchesTheme } from '../../lib/themeFilters.js';
 import type { TimelineDockMode } from './TimelineDock.js';
 
 type ContextTab = 'details' | 'sources' | 'tasks';
@@ -18,6 +20,7 @@ export function LearningLayout() {
   useModuleData();
   useUrlSync();
   const loc = useLocalized();
+  const { i18n } = useTranslation();
   const selectedEventId = useChronotopStore(s => s.selectedEventId);
   const selectionRevision = useChronotopStore(s => s.selectionRevision);
   const selectEvent = useChronotopStore(s => s.selectEvent);
@@ -31,7 +34,12 @@ export function LearningLayout() {
   const selectedEvent = selectedEventId ? events.find(e => e.id === selectedEventId) : null;
   const taskCount = tasks.length;
   const activeFilterCount = themeFilter.length + (timeFilter.from || timeFilter.to ? 1 : 0) + (searchQuery.trim() ? 1 : 0);
-  const compactStage = useMediaQuery('(max-width: 1023px)');
+  const selectedEventVisible = useMemo(() => {
+    if (!selectedEvent) return true;
+    return isEventInTimeRange(selectedEvent, timeFilter.from, timeFilter.to)
+      && eventMatchesSearch(selectedEvent, searchQuery, i18n.language)
+      && eventMatchesTheme(selectedEvent, themeFilter, i18n.language);
+  }, [i18n.language, searchQuery, selectedEvent, themeFilter, timeFilter.from, timeFilter.to]);
 
   const [contextOpen, setContextOpen] = useState(false);
   const [contextTab, setContextTab] = useState<ContextTab>('details');
@@ -42,8 +50,12 @@ export function LearningLayout() {
     if (!selectedEventId) return;
     setContextTab('details');
     setContextOpen(true);
-    if (compactStage) setFilterOpen(false);
-  }, [compactStage, selectedEventId, selectionRevision]);
+  }, [selectedEventId, selectionRevision]);
+
+  useEffect(() => {
+    if (!selectedEventId || !selectedEvent || !contextOpen || contextTab === 'tasks') return;
+    if (!selectedEventVisible) setContextOpen(false);
+  }, [contextOpen, contextTab, selectedEvent, selectedEventId, selectedEventVisible]);
 
   const closeContext = () => {
     if (contextTab === 'tasks') {
@@ -80,14 +92,7 @@ export function LearningLayout() {
       stageActions={(
         <button
           type="button"
-          onClick={() => {
-            setFilterOpen(current => {
-              const next = !current;
-              if (next && compactStage) setContextOpen(false);
-              if (!next && compactStage && selectedEventId) setContextOpen(true);
-              return next;
-            });
-          }}
+          onClick={() => setFilterOpen(current => !current)}
           aria-expanded={filterOpen}
           className={`pointer-events-auto inline-flex min-h-[42px] items-center gap-2 rounded-md border px-3 text-sm font-semibold shadow-xl backdrop-blur-md transition-colors ${
             filterOpen || activeFilterCount > 0
